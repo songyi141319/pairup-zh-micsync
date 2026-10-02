@@ -1,10 +1,29 @@
-# 2026-10-02 中文增强预览版
+# 2026-10-02 中文增强预览版 · preview.2 安装包
+
+## 直接下载安装
+
+**[点击下载中文 EXE 安装包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.3.6-zh.20261002-preview.2/PairUp-Chinese-Setup-0.3.6-zh.20261002-preview.2-win-x64.exe)**
+
+适用于 Windows 10 / 11 的 x64 电脑。双击下载的安装包，按中文向导安装，再从桌面或开始菜单打开“PairUp 中文增强版”。无需另装 .NET 或开发工具；支持在 Windows 设置中卸载。
+
+本次新增安装向导、快捷方式、卸载入口和安装说明。主程序沿用 preview.1，声音功能没有变化。完整多音箱校准、长期同步和其他电脑使用仍待实测。
+
+| 文件 | 用途 |
+| --- | --- |
+| `PairUp-Chinese-Setup-0.3.6-zh.20261002-preview.2-win-x64.exe` | 推荐：中文安装包 |
+| `PairUp-Chinese-win-x64-full-20261002-preview.2.zip` | 免安装程序、最新源码、许可证和接续说明 |
+| `PairUp.App.exe` | 单独的免安装主程序 |
+| `SHA256SUMS.txt` | 下载文件的完整性校验值 |
+
+安装前如已打开 PairUp，请先从托盘菜单正常退出。安装包暂未进行数字签名，Windows 可能显示“未知发布者”。安装向导已完成构建；本次未执行安装、卸载或声音实测。详细操作见 [安装说明](https://github.com/songyi141319/pairup-zh-micsync/blob/codex/chinese-mic-sync/docs/INSTALL.zh-CN.md)。
+
+## 程序内容与当前状态
 
 这是基于 Jamim Mehdi / pair-up-audio v0.3.6 的 MIT 衍生版本，原作者和许可证已保留。
 
 本次保存中文界面、0–3000 毫秒延迟、0.1 毫秒精细调节、持续软件积压修复、驱动排队显示和麦克风错峰校准代码。
 
-- 完整包 `PairUp-Chinese-win-x64-full-20261002.zip` 包含可运行程序、全部源码、使用说明和接续文档。
+- 完整包 `PairUp-Chinese-win-x64-full-20261002-preview.2.zip` 包含可运行程序、全部源码、使用说明和接续文档。
 - `PairUp.App.exe` 是同一版本的单独程序文件。
 - `SHA256SUMS.txt` 用来核对下载文件是否完整。
 - Windows x64 自包含构建，使用程序不需要另装 .NET SDK。

@@ -4,14 +4,17 @@
 
 **状态：可运行的开发预览版。35 项软件检查通过；新版完整三音箱校准和长时间同步尚待实测。**
 
-## 先下载
+## 下载安装（推荐）
 
-- [下载完整包：程序、源码、使用说明和接续文档](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.3.6-zh.20261002-preview.1/PairUp-Chinese-win-x64-full-20261002.zip)
-- [查看本次发布和校验文件](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.3.6-zh.20261002-preview.1)
+- **[下载中文 EXE 安装包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.3.6-zh.20261002-preview.2/PairUp-Chinese-Setup-0.3.6-zh.20261002-preview.2-win-x64.exe)**
+- [下载免安装完整包：程序、源码、使用说明和接续文档](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.3.6-zh.20261002-preview.2/PairUp-Chinese-win-x64-full-20261002-preview.2.zip)
+- [查看本次发布和校验文件](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.3.6-zh.20261002-preview.2)
 
-完整包适用于 Windows x64，已包含运行所需的 .NET 组件。解压整个文件夹，双击 `PairUp.App.exe`。只使用程序时不需要安装开发工具。完整源码在包内 `source` 文件夹。
+适用于 Windows 10 / 11 的 x64 电脑。安装包已自带运行所需的 .NET 组件，双击下载的 `PairUp-Chinese-Setup-…-win-x64.exe`，按中文向导安装，再从桌面或开始菜单打开“PairUp 中文增强版”。不需要编译源码或安装开发工具。
 
-GitHub 的绿色 Code → Download ZIP 只下载源码；需要现成程序，请下载上面的完整包。
+安装到当前用户，可创建快捷方式，也可以从 Windows“设置 → 应用”卸载。详细步骤见 [安装与卸载说明](docs/INSTALL.zh-CN.md)。本版未进行数字签名，Windows 可能显示“未知发布者”。
+
+免安装完整包解压后双击 `PairUp.App.exe` 即可；源码在包内 `source` 文件夹。GitHub 的绿色 Code → Download ZIP 只下载源码，需要现成程序请使用上面的下载入口。
 
 ## 底子是谁的
 
@@ -37,13 +40,13 @@ GitHub 的绿色 Code → Download ZIP 只下载源码；需要现成程序，�
 
 ## 换电脑怎么用
 
-1. 解压完整包，先连接音箱和独立麦克风。
+1. 安装上面的 EXE 安装包，或解压免安装完整包；先连接音箱和独立麦克风。
 2. 在 Windows 里选好主音源，再打开 PairUp。当前音源自己直接播放，其余音箱在 PairUp 中打开。
 3. 按设备实际声音确认 AUX 对应项。原电脑的 AUX 叫“耳机（2- Realtek(R) Audio）”；其他电脑名称可能不同。
 4. 先用较低音量确认每台都有声音，然后调延迟。需要麦克风测量时，按 [使用说明](docs/MIC-SYNC.zh-CN.md) 操作。
 5. 换音源后正常退出并重新打开 PairUp。右上角关闭按钮可能只是收起到托盘，彻底退出请用托盘菜单。
 
-配置保存在 `%APPDATA%\PairUp\settings.json`。新电脑的设备标识和声音延迟会变化，需要重新选设备和调节；旧电脑的数值只能作为参考。
+配置保存在 `%APPDATA%\PairUp\settings.json`。新电脑的设备标识和声音延迟会变化，需要重新选设备和调节；旧电脑的数值只能作为参考。原版和增强版使用同一个配置位置，请只运行其中一个。
 
 **本版程序内“检查更新”仍指向原作者仓库。更新此增强版请从本仓库 Releases 下载；安装原版更新可能覆盖这些增强功能。**
 

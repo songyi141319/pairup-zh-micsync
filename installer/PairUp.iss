@@ -1,25 +1,34 @@
-#define MyAppName "PairUp"
+﻿#define MyAppName "PairUp 中文增强版"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.3.6-zh.20261002-preview.2"
 #endif
-#define MyAppPublisher "Jamim Mehdi"
-#define MyAppURL "https://github.com/jamimmehdi/pair-up-audio"
+#ifndef WindowsVersion
+  #define WindowsVersion "0.3.6.2"
+#endif
+#ifndef AppBinary
+  #define AppBinary "..\publish\PairUp.App.exe"
+#endif
+#define MyAppPublisher "songyi141319；原作 Jamim Mehdi"
+#define MyAppURL "https://github.com/songyi141319/pairup-zh-micsync"
 #define MyAppExeName "PairUp.App.exe"
 
 [Setup]
-AppId={{B7B6E7C1-9F1E-4B7D-9B7B-6A0B2E7C1A11}
+; Keep the fork separate from the original application's installer registration.
+AppId={{DA759762-7011-40FC-825B-DCCA0B20BA17}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+VersionInfoVersion={#WindowsVersion}
+AppCopyright=Copyright (c) 2026 Jamim Mehdi. MIT License.
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
-AppUpdatesURL={#MyAppURL}
-DefaultDirName={localappdata}\Programs\PairUp
-DefaultGroupName=PairUp
+AppUpdatesURL={#MyAppURL}/releases
+DefaultDirName={localappdata}\Programs\PairUp-Chinese
+DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=Output
-OutputBaseFilename=PairUp-Setup-{#MyAppVersion}
+OutputBaseFilename=PairUp-Chinese-Setup-{#MyAppVersion}-win-x64
 SetupIconFile=..\src\PairUp.App\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/max
@@ -27,29 +36,38 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+MinVersion=10.0
 DisableWelcomePage=no
 DisableDirPage=no
+LicenseFile=..\LICENSE
+InfoBeforeFile=安装说明.txt
+CloseApplications=no
+RestartApplications=no
+UninstallDisplayName={#MyAppName}
+ShowLanguageDialog=no
 
-; Same AppId + DefaultDirName every version, so a newer Setup.exe run over an older
-; install (including our own silent auto-update flow) just upgrades in place.
+; Audio state must be restored by the app's normal tray Exit action before an
+; upgrade or uninstall. Never taskkill, auto-close, or silently launch the app.
 
 [Languages]
-Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："
 
 [Files]
-Source: "..\src\PairUp.App\bin\Release\net8.0-windows\win-x64\publish\PairUp.App.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#AppBinary}"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\CREDITS.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "安装说明.txt"; DestDir: "{app}"; DestName: "使用说明.txt"; Flags: ignoreversion
+Source: "..\docs\*.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\PairUp"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\PairUp"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autoprograms}\{#MyAppName}\使用说明"; Filename: "{app}\使用说明.txt"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; No "skipifsilent" — this also fires during our own silent auto-update download+install
-; flow (installer run with /VERYSILENT), so the app relaunches automatically post-update.
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch PairUp"; Flags: nowait postinstall
-
-[UninstallRun]
-Filename: "taskkill.exe"; Parameters: "/IM {#MyAppExeName} /F"; Flags: runhidden skipifdoesntexist; RunOnceId: "KillPairUp"
+Filename: "{app}\{#MyAppExeName}"; Description: "立即打开 PairUp 中文增强版"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent unchecked

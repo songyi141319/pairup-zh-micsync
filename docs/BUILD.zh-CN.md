@@ -36,7 +36,27 @@ dotnet publish .\src\PairUp.App\PairUp.App.csproj -c Release -r win-x64 --self-c
 
 结果在 `publish\PairUp.App.exe`。同一项目的构建、检查、发布应依次执行，避免同时修改构建中间文件。
 
-需要安装包时可以参考原项目 `installer`，但本次发布使用免安装解压包；旧安装脚本中的版本号和上游地址需要先复核。
+## 生成中文 EXE 安装包
+
+准备 [Inno Setup](https://jrsoftware.org/isinfo.php) 编译工具；本次固定使用 6.7.3，官方文件来源为 [is-6_7_3](https://github.com/jrsoftware/issrc/releases/tag/is-6_7_3)。在项目根目录执行：
+
+```powershell
+.\installer\build-installer.ps1
+```
+
+脚本先生成包含 .NET 运行组件的单文件程序，再编译安装包。结果在 `installer\Output\PairUp-Chinese-Setup-0.3.6-zh.20261002-preview.2-win-x64.exe`。构建过程不会打开 PairUp，也不会执行生成的安装包。
+
+若编译工具不在默认安装目录，用 `-IsccPath` 指定 `ISCC.exe`。如已准备好自包含程序，可直接打包，避免重新构建程序：
+
+```powershell
+.\installer\build-installer.ps1 -BinaryPath .\publish\PairUp.App.exe -IsccPath 'C:\Tools\Inno Setup 6\ISCC.exe'
+```
+
+也可以提供 `-ExpectedBinarySha256` 核对指定程序，`-DotNetPath` 指定 .NET 工具路径。发布新版本时同时指定 `-Version`（显示及文件名版本）和 `-WindowsVersion`（四段数字版本）。
+
+本次 `preview.2` 安装包沿用 `preview.1` 的主程序；主程序 SHA256 为 `048D96ECECBC4B7D9ADAA2FB2BE3E9EB9C8696B8E75E8C56E122C7E7CC4F5A9F`。安装包源码、中文语言文件和安装说明已保存到 `installer`，Inno Setup 的许可证保存在 `licenses`。
+
+安装包有独立的增强版名称、安装位置和卸载登记，不强制结束正在运行的音频程序。升级或卸载前，使用者需要正常退出 PairUp。安装完成页的“立即打开”默认不勾选；静默安装也不会自动启动程序。
 
 ## 文件与设置
 

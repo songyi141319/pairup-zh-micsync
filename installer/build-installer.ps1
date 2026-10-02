@@ -1,41 +1,81 @@
 <#
 .SYNOPSIS
-    Publishes PairUp as a self-contained win-x64 binary and compiles it into a proper
-    Setup.exe installer with Inno Setup.
-.PARAMETER Version
-    Version string to stamp into the installer (e.g. "0.2.0"). Defaults to the AppVersion
-    constant currently set in MainWindow.xaml.cs.
+    Build the Chinese Windows x64 installer with Inno Setup 6.7.3 or later.
+.DESCRIPTION
+    By default, publish a self-contained application first. Use -BinaryPath to
+    package an existing self-contained PairUp.App.exe without changing it.
+    Building never launches PairUp or runs the generated installer.
 #>
+[CmdletBinding()]
 param(
-    [string]$Version
+    [ValidatePattern('^\d+\.\d+\.\d+([.-][0-9A-Za-z]+)*$')]
+    [string]$Version = '0.3.6-zh.20261002-preview.2',
+    [ValidatePattern('^\d{1,5}\.\d{1,5}\.\d{1,5}\.\d{1,5}$')]
+    [string]$WindowsVersion = '0.3.6.2',
+    [string]$BinaryPath,
+    [string]$ExpectedBinarySha256,
+    [string]$IsccPath,
+    [string]$DotNetPath = 'dotnet'
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $csproj = Join-Path $root "src\PairUp.App\PairUp.App.csproj"
-$mainWindowCs = Join-Path $root "src\PairUp.App\MainWindow.xaml.cs"
 $issPath = Join-Path $PSScriptRoot "PairUp.iss"
 
-if (-not $Version) {
-    $match = Select-String -Path $mainWindowCs -Pattern 'AppVersion = "([\d.]+)"' | Select-Object -First 1
-    if (-not $match) { throw "Could not determine version from MainWindow.xaml.cs; pass -Version explicitly." }
-    $Version = $match.Matches[0].Groups[1].Value
+foreach ($part in $WindowsVersion.Split('.')) {
+    if ([int]$part -gt 65535) { throw 'WindowsVersion components must be at most 65535.' }
+}
+if ($ExpectedBinarySha256 -and $ExpectedBinarySha256 -notmatch '^[0-9A-Fa-f]{64}$') {
+    throw 'ExpectedBinarySha256 must contain exactly 64 hexadecimal characters.'
 }
 
-Write-Host "Publishing PairUp v$Version (self-contained win-x64)..." -ForegroundColor Cyan
-dotnet publish $csproj -c Release -r win-x64 --self-contained true `
-    -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
+if (-not $IsccPath) {
+    $candidates = @(
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+        "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe",
+        "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+        "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+    )
+    $IsccPath = $candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+    if (-not $IsccPath) {
+        $command = Get-Command 'ISCC.exe' -ErrorAction SilentlyContinue
+        if ($command) { $IsccPath = $command.Source }
+    }
+}
+if (-not $IsccPath -or -not (Test-Path -LiteralPath $IsccPath -PathType Leaf)) {
+    throw 'Inno Setup compiler not found. Install it or pass -IsccPath explicitly.'
+}
+$IsccPath = (Resolve-Path -LiteralPath $IsccPath).Path
 
-$iscc = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
-                             "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
-                             "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-                       -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $iscc) { throw "ISCC.exe (Inno Setup compiler) not found. Install Inno Setup 6 first." }
+if (-not $BinaryPath) {
+    $publishDir = Join-Path $root 'publish'
+    Write-Host "Publishing PairUp $Version (self-contained win-x64)..."
+    & $DotNetPath publish $csproj -c Release -r win-x64 --self-contained true `
+        -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:EnableCompressionInSingleFile=true -o $publishDir
+    if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
+    $BinaryPath = Join-Path $publishDir 'PairUp.App.exe'
+}
+if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
+    throw "Application binary not found: $BinaryPath"
+}
+$BinaryPath = (Resolve-Path -LiteralPath $BinaryPath).Path
+$binaryHash = (Get-FileHash -LiteralPath $BinaryPath -Algorithm SHA256).Hash
+if ($ExpectedBinarySha256 -and $binaryHash -ne $ExpectedBinarySha256) {
+    throw 'Application checksum does not match ExpectedBinarySha256.'
+}
 
-Write-Host "Compiling installer with $($iscc.FullName)..." -ForegroundColor Cyan
-& $iscc.FullName "/DMyAppVersion=$Version" $issPath
+Write-Host "Compiling the Chinese installer with $IsccPath..."
+& $IsccPath "/DMyAppVersion=$Version" "/DWindowsVersion=$WindowsVersion" "/DAppBinary=$BinaryPath" $issPath
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed." }
 
-$output = Join-Path $PSScriptRoot "Output\PairUp-Setup-$Version.exe"
-Write-Host "Installer built: $output" -ForegroundColor Green
+$output = Join-Path $PSScriptRoot "Output\PairUp-Chinese-Setup-$Version-win-x64.exe"
+if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { throw 'Installer output was not created.' }
+[pscustomobject]@{
+    Installer = $output
+    InstallerSHA256 = (Get-FileHash -LiteralPath $output -Algorithm SHA256).Hash
+    ApplicationSHA256 = $binaryHash
+}
