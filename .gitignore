@@ -1,0 +1,40 @@
+# Build outputs
+bin/
+obj/
+*.user
+
+# Visual Studio / Rider
+.vs/
+.idea/
+
+# Downloaded driver installers (large binaries, not app source)
+drivers/
+
+# Publish output
+publish/
+
+# Compiled installer output
+installer/Output/
+
+# Local working drafts (social posts, mockups) — not part of the project
+scratch/
+
+# OS cruft
+Thumbs.db
+.DS_Store
+
+# Claude Code project settings
+.claude/
+
+# Local runtime data and release staging
+release/
+artifacts/
+backups/
+settings*.json
+*.pdb
+*.exe
+*.wav
+*.flac
+*.mp3
+.env
+.env.*

@@ -1,0 +1,713 @@
+<Window x:Class="PairUp.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:PairUp.App"
+        xmlns:audio="clr-namespace:PairUp.App.Audio"
+        mc:Ignorable="d"
+        Title="PairUp" Language="zh-CN" Height="760" Width="1180" MinWidth="640" MinHeight="420"
+        Icon="app.ico"
+        Background="{DynamicResource BgBrush}"
+        FontFamily="Segoe UI"
+        Foreground="{DynamicResource TextBrush}"
+        WindowStyle="None" ResizeMode="CanResize">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="40" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0,0,0,1"/>
+    </WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <Style x:Key="CaptionButton" TargetType="Button">
+            <Setter Property="Width" Value="42"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource Surface3Brush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="CloseButton" TargetType="Button" BasedOn="{StaticResource CaptionButton}">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#C0392B"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="DeviceRow" TargetType="Border">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush2}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="Padding" Value="4,14"/>
+        </Style>
+        <Style x:Key="DelayStepButton" TargetType="RepeatButton">
+            <Setter Property="Width" Value="38"/>
+            <Setter Property="Height" Value="24"/>
+            <Setter Property="Margin" Value="0,0,3,0"/>
+            <Setter Property="Background" Value="{DynamicResource Surface3Brush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush2}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Delay" Value="500"/>
+            <Setter Property="Interval" Value="100"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <DataTemplate DataType="{x:Type audio:AudioDeviceInfo}">
+            <Border Style="{StaticResource DeviceRow}">
+                <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="4"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*" MinWidth="160"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="180"/>
+                        <ColumnDefinition Width="180"/>
+                        <ColumnDefinition Width="132"/>
+                        <ColumnDefinition Width="40"/>
+                        <ColumnDefinition Width="40"/>
+                        <ColumnDefinition Width="40"/>
+                        <ColumnDefinition Width="44"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Connected-state accent strip -->
+                    <Border Grid.Column="0" Width="3" CornerRadius="2" Margin="0,2,14,2">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+
+                    <Border Grid.Column="1" Width="36" Height="36" CornerRadius="9" Margin="0,0,12,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{DynamicResource Surface3Brush}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                        <Setter Property="Background" Value="{DynamicResource AccentDimBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="16"
+                                   FontFamily="Segoe MDL2 Assets">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}"/>
+                                    <Setter Property="Text" Value="&#xE9CE;"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Kind}" Value="Bluetooth">
+                                            <Setter Property="Text" Value="&#xE702;"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Kind}" Value="Wired">
+                                            <Setter Property="Text" Value="&#xE7F6;"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Kind}" Value="Speakers">
+                                            <Setter Property="Text" Value="&#xE767;"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Border>
+
+                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="16"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                            <TextBlock Text="{Binding KindDisplayName}" Style="{StaticResource EyebrowText}"/>
+                            <TextBlock Text=" · 系统默认" Style="{StaticResource EyebrowText}"
+                                       Foreground="{DynamicResource Accent2Brush}"
+                                       Visibility="{Binding IsSystemDefault, Converter={StaticResource BoolToVisibility}}"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <CheckBox Grid.Column="3" IsChecked="{Binding IsConnected}" VerticalAlignment="Center"
+                              Margin="0,0,20,0" Style="{StaticResource ToggleSwitch}"
+                              AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="启用或停用此输出设备"/>
+
+                    <StackPanel Grid.Column="4" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="音量" Style="{StaticResource EyebrowText}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Volume, StringFormat={}{0:0}%}" FontSize="12"
+                                       Foreground="{DynamicResource TextMutedBrush}"/>
+                        </Grid>
+                        <Slider Minimum="0" Maximum="100" Value="{Binding Volume}" Margin="0,4,0,0"
+                                IsEnabled="{Binding IsConnected}" AutomationProperties.Name="设备音量"
+                                ToolTip="调节此设备的音量"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="5" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="延迟" Style="{StaticResource EyebrowText}"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBox Width="52" Text="{Binding LatencyMs, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:0.0}, ValidatesOnExceptions=True}"
+                                         IsEnabled="{Binding IsConnected}" KeyDown="DelayInput_KeyDown"
+                                         Background="{DynamicResource Surface3Brush}" Foreground="{DynamicResource TextBrush}"
+                                         AutomationProperties.Name="延迟毫秒数" ToolTip="输入 0–3000，支持小数，例如 187.1；按回车应用" FontSize="12"/>
+                                <TextBlock Text=" 毫秒" FontSize="12" Foreground="{DynamicResource TextMutedBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                        <Slider Minimum="0" Maximum="3000" Value="{Binding LatencyMs}" Margin="0,4,0,0"
+                                TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10" Focusable="True"
+                                IsEnabled="{Binding IsConnected}" AutomationProperties.Name="同步延迟"
+                                ToolTip="滑杆用于粗调；下方按钮可以细调 1 或 0.1 毫秒。方向键每次调整 1 毫秒。"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0" IsEnabled="{Binding IsConnected}">
+                            <RepeatButton Content="−1" Tag="-1" Style="{StaticResource DelayStepButton}" Click="DelayStep_Click"
+                                          AutomationProperties.Name="减少 1 毫秒" ToolTip="每次减少 1 毫秒；按住可连续调整"/>
+                            <RepeatButton Content="−0.1" Tag="-0.1" Style="{StaticResource DelayStepButton}" Click="DelayStep_Click"
+                                          AutomationProperties.Name="减少 0.1 毫秒" ToolTip="每次减少 0.1 毫秒；按住可连续调整"/>
+                            <RepeatButton Content="+0.1" Tag="0.1" Style="{StaticResource DelayStepButton}" Click="DelayStep_Click"
+                                          AutomationProperties.Name="增加 0.1 毫秒" ToolTip="每次增加 0.1 毫秒；按住可连续调整"/>
+                            <RepeatButton Content="+1" Tag="1" Style="{StaticResource DelayStepButton}" Click="DelayStep_Click"
+                                          AutomationProperties.Name="增加 1 毫秒" ToolTip="每次增加 1 毫秒；按住可连续调整"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border Grid.Column="6" Style="{StaticResource PillBadgeSmall}" ToolTip="{Binding SyncDetailsText}">
+                        <TextBlock TextAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource PillText}">
+                                    <Setter Property="Text" Value="未连接"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsOutOfRange}" Value="True">
+                                            <Setter Property="Text" Value="超出范围"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                            <Setter Property="Text" Value="{Binding SyncStatusText}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Border>
+
+                    <Button Grid.Column="7" Style="{StaticResource IconToggleButton}"
+                            Click="EqToggle_Click" ToolTip="音效调节（均衡器、单声道）">
+                        <TextBlock Text="&#xE9E9;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource TextOnVisualizerBrush}"/>
+                                    <Setter Property="Opacity" Value="0.7"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsProcessingExpanded}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+                                            <Setter Property="Opacity" Value="1"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Button>
+
+                    <Button Grid.Column="8" Style="{StaticResource IconToggleButton}"
+                            Click="ShareToggle_Click" ToolTip="通过手机调节此设备的音量"
+                            IsEnabled="{Binding IsConnected}">
+                        <TextBlock Text="&#xE72D;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                   Foreground="{DynamicResource TextOnVisualizerBrush}" Opacity="0.7"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <Button Grid.Column="9" Style="{StaticResource IconToggleButton}"
+                            Click="CalibrateToggle_Click" ToolTip="校准此设备的播放延迟"
+                            IsEnabled="{Binding IsConnected}">
+                        <TextBlock Text="&#xE916;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                   Foreground="{DynamicResource TextOnVisualizerBrush}" Opacity="0.7"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+
+                    <Button Grid.Column="10" Style="{StaticResource StarToggleButton}" Margin="12,0,0,0"
+                            Click="FavoriteToggle_Click" ToolTip="加入收藏"/>
+                </Grid>
+
+                <!-- Per-device audio processing: EQ + mono downmix, collapsed by default -->
+                <Border Visibility="{Binding IsProcessingExpanded, Converter={StaticResource BoolToVisibility}}"
+                        Background="{DynamicResource BgBrush}" CornerRadius="8"
+                        Margin="18,10,4,0" Padding="18,14">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Margin="0,0,20,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="低音" Style="{StaticResource EyebrowText}"/>
+                                <TextBlock Grid.Column="1" Text="{Binding BassBoost, StringFormat={}{0:+0;-0;0}dB}"
+                                           FontSize="12" Foreground="{DynamicResource TextMutedBrush}"/>
+                            </Grid>
+                            <Slider Minimum="-12" Maximum="12" Value="{Binding BassBoost}" Margin="0,4,0,0"
+                                    IsEnabled="{Binding IsConnected}" AutomationProperties.Name="低音调节"/>
+                            <Grid Margin="0,2,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="-12dB" FontSize="10"
+                                           Foreground="{DynamicResource TextFaintBrush}" HorizontalAlignment="Left"/>
+                                <TextBlock Grid.Column="1" Text="0" FontSize="10"
+                                           Foreground="{DynamicResource TextFaintBrush}" HorizontalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="+12dB" FontSize="10"
+                                           Foreground="{DynamicResource TextFaintBrush}" HorizontalAlignment="Right"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Margin="0,0,20,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="高音" Style="{StaticResource EyebrowText}"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Treble, StringFormat={}{0:+0;-0;0}dB}"
+                                           FontSize="12" Foreground="{DynamicResource TextMutedBrush}"/>
+                            </Grid>
+                            <Slider Minimum="-12" Maximum="12" Value="{Binding Treble}" Margin="0,4,0,0"
+                                    IsEnabled="{Binding IsConnected}" AutomationProperties.Name="高音调节"/>
+                            <Grid Margin="0,2,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="-12dB" FontSize="10"
+                                           Foreground="{DynamicResource TextFaintBrush}" HorizontalAlignment="Left"/>
+                                <TextBlock Grid.Column="1" Text="0" FontSize="10"
+                                           Foreground="{DynamicResource TextFaintBrush}" HorizontalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="+12dB" FontSize="10"
+                                           Foreground="{DynamicResource TextFaintBrush}" HorizontalAlignment="Right"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                            <TextBlock Text="单声道" Style="{StaticResource EyebrowText}" Margin="0,0,0,6"
+                                       HorizontalAlignment="Center"/>
+                            <CheckBox IsChecked="{Binding IsMono}" IsEnabled="{Binding IsConnected}"
+                                      HorizontalAlignment="Center" Style="{StaticResource ToggleSwitch}"
+                                      ToolTip="合并左右声道，让两侧播放相同声音，适合单耳耳机"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel>
+
+        <!-- Custom title bar -->
+        <Grid DockPanel.Dock="Top" Height="40" Background="{DynamicResource Surface2Brush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
+                <Border Width="24" Height="24" CornerRadius="7" Margin="0,0,10,0"
+                        Background="{DynamicResource LogoMarkBrush}">
+                    <Viewbox Width="15" Height="15">
+                        <Path Data="M3 12c2-4 4-6 5-6s2 8 4 8 2-10 4-10 3 8 5 8"
+                              Stroke="{DynamicResource LogoGlyphBrush}" StrokeThickness="2"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                    </Viewbox>
+                </Border>
+                <TextBlock Text="PAIRUP" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold" FontSize="13"
+                           Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button x:Name="CreditButton" Content="&#xE946;" Style="{StaticResource CaptionButton}"
+                        FontSize="13" Click="CreditButton_Click" ToolTip="关于 PairUp"/>
+                <Button Content="&#xE921;" Style="{StaticResource CaptionButton}" Click="Minimize_Click" ToolTip="最小化到托盘"/>
+                <Button x:Name="MaximizeButton" Content="&#xE922;" Style="{StaticResource CaptionButton}" Click="Maximize_Click" ToolTip="最大化或还原"/>
+                <Button Content="&#xE8BB;" Style="{StaticResource CloseButton}" Click="Close_Click" ToolTip="最小化到托盘"/>
+            </StackPanel>
+
+            <Popup x:Name="CreditPopup" PlacementTarget="{Binding ElementName=CreditButton}"
+                   Placement="Bottom" HorizontalOffset="-190" VerticalOffset="4"
+                   StaysOpen="False" AllowsTransparency="True">
+                <Border Background="{DynamicResource Surface2Brush}" BorderBrush="{DynamicResource BorderBrush2}"
+                        BorderThickness="1" CornerRadius="10" Padding="20" Width="230">
+                    <Border.Effect>
+                        <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="4" BlurRadius="16" Opacity="0.35"/>
+                    </Border.Effect>
+                    <StackPanel>
+                        <TextBlock Text="开发者" Style="{StaticResource EyebrowText}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Jamim Mehdi" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold"
+                                   FontSize="18" Foreground="{DynamicResource TextBrush}" Margin="0,0,0,14"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" Cursor="Hand"
+                                    Tag="https://claude.com/claude-code" MouseLeftButtonUp="CreditLink_Click">
+                            <TextBlock Text="&#xE945;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{DynamicResource AccentBrush}" Width="22"/>
+                            <TextBlock Text="使用 Claude Code 构建" Foreground="{DynamicResource TextMutedBrush}" FontSize="13"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" Cursor="Hand"
+                                    Tag="https://in.linkedin.com/in/jamim-mehdi" MouseLeftButtonUp="CreditLink_Click">
+                            <TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{DynamicResource AccentBrush}" Width="22"/>
+                            <TextBlock Text="LinkedIn" Foreground="{DynamicResource TextMutedBrush}" FontSize="13"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" Cursor="Hand"
+                                    Tag="https://github.com/jamimmehdi" MouseLeftButtonUp="CreditLink_Click">
+                            <TextBlock Text="&#xE943;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{DynamicResource AccentBrush}" Width="22"/>
+                            <TextBlock Text="GitHub" Foreground="{DynamicResource TextMutedBrush}" FontSize="13"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" Cursor="Hand"
+                                    Tag="https://www.facebook.com/jamim.mehdi" MouseLeftButtonUp="CreditLink_Click">
+                            <TextBlock Text="&#xE8C7;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{DynamicResource AccentBrush}" Width="22"/>
+                            <TextBlock Text="Facebook" Foreground="{DynamicResource TextMutedBrush}" FontSize="13"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,14" Cursor="Hand"
+                                    Tag="https://www.instagram.com/_byte_bard_/" MouseLeftButtonUp="CreditLink_Click">
+                            <TextBlock Text="&#xE114;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{DynamicResource AccentBrush}" Width="22"/>
+                            <TextBlock Text="Instagram" Foreground="{DynamicResource TextMutedBrush}" FontSize="13"/>
+                        </StackPanel>
+
+                        <Border BorderBrush="{DynamicResource BorderBrush2}" BorderThickness="0,1,0,0" Margin="0,0,0,10"/>
+
+                        <StackPanel Orientation="Horizontal" Cursor="Hand" MouseLeftButtonUp="LicenseLink_Click">
+                            <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{DynamicResource AccentBrush}" Width="22"/>
+                            <TextBlock Text="MIT 许可证" Foreground="{DynamicResource TextMutedBrush}" FontSize="13"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Popup>
+
+            <Popup x:Name="LicensePopup" PlacementTarget="{Binding ElementName=CreditButton}"
+                   Placement="Bottom" HorizontalOffset="-340" VerticalOffset="4"
+                   StaysOpen="False" AllowsTransparency="True">
+                <Border Background="{DynamicResource Surface2Brush}" BorderBrush="{DynamicResource BorderBrush2}"
+                        BorderThickness="1" CornerRadius="10" Padding="20" Width="380">
+                    <Border.Effect>
+                        <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="4" BlurRadius="16" Opacity="0.35"/>
+                    </Border.Effect>
+                    <StackPanel>
+                        <TextBlock Text="MIT 许可证" Style="{StaticResource EyebrowText}" Margin="0,0,0,4"/>
+                        <TextBlock Text="版权所有 (c) 2026 Jamim Mehdi" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold"
+                                   FontSize="14" Foreground="{DynamicResource TextBrush}" Margin="0,0,0,12"/>
+                        <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto" Margin="0,0,0,14">
+                            <TextBlock TextWrapping="Wrap" FontSize="11.5" LineHeight="18"
+                                       Foreground="{DynamicResource TextMutedBrush}">
+                                任何人均可免费获得本软件及其相关文档（以下称“软件”），并可不受限制地处理本软件，包括但不限于使用、复制、修改、合并、出版、分发、再许可及／或销售软件副本，也可允许获得本软件的人这样做，但须遵守以下条件：
+                                <LineBreak/><LineBreak/>
+                                上述版权声明和本许可声明必须包含在软件的所有副本或主要部分中。
+                                <LineBreak/><LineBreak/>
+                                本软件按“现状”提供，不附带任何明示或默示担保，包括但不限于适销性、特定用途适用性和不侵权的担保。在任何情况下，作者或版权持有人均不对因本软件或本软件的使用及其他交易而产生的任何索赔、损害或其他责任承担责任，无论该责任属于合同、侵权或其他情形。
+                                <LineBreak/><LineBreak/>
+                                以上为 MIT 许可证中文译文，仅供理解参考；如与英文原文有出入，以英文原文为准。
+                            </TextBlock>
+                        </ScrollViewer>
+                        <Button Content="关闭" Style="{StaticResource SmallFlatButton}"
+                                Background="{DynamicResource Surface3Brush}" Foreground="{DynamicResource TextBrush}"
+                                BorderBrush="{DynamicResource BorderBrush2}" BorderThickness="1"
+                                Padding="0,10" Click="LicenseClose_Click"/>
+                    </StackPanel>
+                </Border>
+            </Popup>
+        </Grid>
+
+        <!-- Guest volume-control QR popup, shared across all device rows; content/placement
+             set dynamically in code-behind from whichever row's Share button was clicked -->
+        <Popup x:Name="GuestSharePopup" Placement="Bottom" HorizontalOffset="-260" VerticalOffset="4"
+               StaysOpen="False" AllowsTransparency="True">
+            <Border Background="{DynamicResource Surface2Brush}" BorderBrush="{DynamicResource BorderBrush2}"
+                    BorderThickness="1" CornerRadius="10" Padding="22" Width="270">
+                <Border.Effect>
+                    <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="4" BlurRadius="16" Opacity="0.35"/>
+                </Border.Effect>
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock x:Name="GuestShareDeviceName" Text="设备" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold"
+                               FontSize="15" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                    <TextBlock Text="扫描二维码，通过同一 Wi-Fi 网络用手机调节音量"
+                               FontSize="11.5" Foreground="{DynamicResource TextFaintBrush}"
+                               TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                    <Border Background="White" CornerRadius="8" Padding="10" HorizontalAlignment="Center">
+                        <Image x:Name="GuestShareQrImage" Width="180" Height="180" AutomationProperties.Name="手机访问二维码"/>
+                    </Border>
+                    <TextBlock Text="访问码" Style="{StaticResource EyebrowText}" Margin="0,16,0,4" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="GuestSharePinText" Text="000000" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold"
+                               FontSize="22" HorizontalAlignment="Center" Foreground="{DynamicResource AccentBrush}"/>
+                    <TextBlock x:Name="GuestShareUnavailableText" Visibility="Collapsed"
+                               Text="无法启动手机遥控服务，请检查网络连接。"
+                               FontSize="11.5" Foreground="{DynamicResource DangerBrush}"
+                               TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
+        </Popup>
+
+        <!-- Guided sync calibration: play a click, tap when heard, compute the delay -->
+        <Popup x:Name="CalibratePopup" Placement="Bottom" HorizontalOffset="-260" VerticalOffset="4"
+               StaysOpen="True" AllowsTransparency="True" Closed="CalibratePopup_Closed">
+            <Border Background="{DynamicResource Surface2Brush}" BorderBrush="{DynamicResource BorderBrush2}"
+                    BorderThickness="1" CornerRadius="10" Padding="24" Width="290">
+                <Border.Effect>
+                    <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="4" BlurRadius="16" Opacity="0.35"/>
+                </Border.Effect>
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock Text="同步校准" Style="{StaticResource EyebrowText}" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="CalibrateDeviceName" Text="设备" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold"
+                               FontSize="16" HorizontalAlignment="Center" Margin="0,0,0,18"/>
+
+                    <!-- Idle state -->
+                    <StackPanel x:Name="CalibrateIdlePanel">
+                        <TextBlock TextWrapping="Wrap" TextAlignment="Center" FontSize="12.5"
+                                   Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,18">
+                            此设备每隔 8 秒会播放一次短提示音。每次听到提示音时，请立即点击下方按钮；点击 5 次后即可粗略估算延迟。要精确对齐，请使用“麦克风自动校准”。
+                        </TextBlock>
+                        <Button Content="开始校准" Style="{StaticResource FlatButton}"
+                                Background="{DynamicResource AccentBrush}" Foreground="#0C1512"
+                                Padding="0,12" Click="CalibrateStart_Click"/>
+                    </StackPanel>
+
+                    <!-- Running state -->
+                    <StackPanel x:Name="CalibrateRunningPanel" Visibility="Collapsed">
+                        <TextBlock x:Name="CalibrateTapCountText" Text="0 / 5 次" FontSize="12.5"
+                                   Foreground="{DynamicResource TextMutedBrush}" HorizontalAlignment="Center" Margin="0,0,0,16"/>
+                        <Button Content="听到提示音时点击" Click="CalibrateTap_Click"
+                                Height="90" FontSize="14" FontWeight="Bold">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource FlatButton}">
+                                    <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+                                    <Setter Property="Foreground" Value="#0C1512"/>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <Button Content="取消" Style="{StaticResource SmallFlatButton}"
+                                Background="Transparent" Foreground="{DynamicResource TextFaintBrush}"
+                                BorderThickness="0" Margin="0,10,0,0" Click="CalibrateCancel_Click"/>
+                    </StackPanel>
+
+                    <!-- Done state -->
+                    <StackPanel x:Name="CalibrateDonePanel" Visibility="Collapsed">
+                        <TextBlock Text="估算延迟" Style="{StaticResource EyebrowText}" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="CalibrateResultText" Text="0 毫秒" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold"
+                                   FontSize="36" Foreground="{DynamicResource AccentBrush}"
+                                   HorizontalAlignment="Center" Margin="0,4,0,20"/>
+                        <Button Content="应用" Style="{StaticResource FlatButton}"
+                                Background="{DynamicResource AccentBrush}" Foreground="#0C1512"
+                                Padding="0,12" Margin="0,0,0,8" Click="CalibrateApply_Click"/>
+                        <Button Content="重试" Style="{StaticResource SmallFlatButton}"
+                                Background="{DynamicResource Surface3Brush}" Foreground="{DynamicResource TextBrush}"
+                                BorderBrush="{DynamicResource BorderBrush2}" BorderThickness="1"
+                                Padding="0,10" Click="CalibrateStart_Click"/>
+                    </StackPanel>
+
+                    <!-- Not enough taps -->
+                    <TextBlock x:Name="CalibrateNotEnoughText" Visibility="Collapsed"
+                               Text="有效点击次数不足。请重试，并尽量在听到每次提示音的瞬间点击。"
+                               FontSize="12" Foreground="{DynamicResource DangerBrush}"
+                               TextWrapping="Wrap" TextAlignment="Center" Margin="0,12,0,0"/>
+                </StackPanel>
+            </Border>
+        </Popup>
+
+        <!-- Master bar -->
+        <Border DockPanel.Dock="Top" MinHeight="150" ClipToBounds="True"
+                BorderBrush="{DynamicResource BorderBrush2}" BorderThickness="0,0,0,1"
+                Background="{DynamicResource MasterBarBackgroundBrush}">
+            <Grid>
+                <!-- Fills the entire bar edge-to-edge, unlike the padded content below -->
+                <Canvas x:Name="VisualizerCanvas" IsHitTestVisible="False"/>
+
+                <Grid Margin="28,22">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="200"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="音频来源" Style="{StaticResource EyebrowText}"
+                               Foreground="{DynamicResource TextOnVisualizerBrush}" Margin="0,0,0,6"/>
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Style="{StaticResource LiveDot}" Margin="0,0,10,0"/>
+                        <TextBlock Text="{Binding SourceName}" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold" FontSize="25"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,24,0">
+                    <TextBlock Text="静音音源" Style="{StaticResource EyebrowText}"
+                               Foreground="{DynamicResource TextOnVisualizerBrush}" Margin="0,0,0,6"/>
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox IsChecked="{Binding IsSourceMuted}" VerticalAlignment="Center"
+                                  Style="{StaticResource ToggleSwitch}" Click="MuteSource_Click"
+                                  AutomationProperties.Name="静音音源" ToolTip="静音或恢复音频来源"/>
+                        <TextBlock VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="播放中"/>
+                                    <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}"/>
+                                    <Setter Property="Effect" Value="{DynamicResource SuccessGlow}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSourceMuted}" Value="True">
+                                            <Setter Property="Text" Value="已静音"/>
+                                            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+                                            <Setter Property="Effect" Value="{DynamicResource DangerGlow}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,24,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="主音量" Style="{StaticResource EyebrowText}"
+                                   Foreground="{DynamicResource TextOnVisualizerBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding MasterVolume, StringFormat={}{0:0}%}" FontSize="12"
+                                   Foreground="{DynamicResource TextOnVisualizerBrush}"/>
+                    </Grid>
+                    <Slider Minimum="0" Maximum="100" Value="{Binding MasterVolume}" Margin="0,6,0,0"
+                            ValueChanged="MasterVolume_ValueChanged" AutomationProperties.Name="主音量"
+                            ToolTip="调节所有输出设备的总音量"/>
+                </StackPanel>
+
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Footer -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource Surface2Brush}" Padding="20,12"
+                BorderBrush="{DynamicResource BorderBrush2}" BorderThickness="0,1,0,0">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="{Binding StatusText}" FontSize="13"
+                               Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center"/>
+                    <Button x:Name="CheckUpdateButton" Grid.Column="1" Content="检查更新"
+                            Click="CheckUpdate_Click" Style="{StaticResource SmallFlatButton}"
+                            Background="{DynamicResource Surface3Brush}" Foreground="{DynamicResource TextMutedBrush}"
+                            BorderBrush="{DynamicResource BorderBrush2}" Padding="10,5"
+                            FontFamily="Bahnschrift SemiBold, Segoe UI Semibold" FontSize="10.5"/>
+                </Grid>
+                <ProgressBar x:Name="UpdateProgressBar" Style="{StaticResource FlatProgressBar}"
+                             Minimum="0" Maximum="100" Margin="0,10,0,0" Visibility="Collapsed"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Device grid -->
+        <ScrollViewer Padding="24" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+
+                <StackPanel Visibility="{Binding HasDefaultDevice, Converter={StaticResource BoolToVisibility}}"
+                            Margin="0,0,0,20">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                   Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="默认设备" FontSize="19" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    <ContentControl Content="{Binding DefaultDevice}"/>
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding HasFavorites, Converter={StaticResource BoolToVisibility}}"
+                            Margin="0,0,0,20">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="&#xE734;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                   Foreground="{DynamicResource Accent2Brush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="收藏设备" FontSize="19" FontWeight="SemiBold"/>
+                    </StackPanel>
+                    <ItemsControl ItemsSource="{Binding FavoriteDevices}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </StackPanel>
+
+                <Grid Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="输出设备" FontSize="19" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding ConnectedSummary}" FontSize="13.5"
+                                   Foreground="{DynamicResource TextFaintBrush}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <Border Grid.Column="1" Style="{StaticResource PillBadge}" Margin="0,0,10,0" VerticalAlignment="Center">
+                        <TextBlock Text="自动微调" ToolTip="维持播放稳定；音箱实际先后请用麦克风自动校准" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold" FontSize="11"
+                                   Foreground="{DynamicResource AccentBrush}"/>
+                    </Border>
+                    <Button Grid.Column="2" Content="麦克风自动校准" Click="MicrophoneCalibration_Click" Style="{StaticResource SmallFlatButton}"
+                            Background="{DynamicResource Surface3Brush}" Foreground="{DynamicResource TextBrush}"
+                            BorderBrush="{DynamicResource BorderBrush2}" Padding="10,5" Margin="0,0,10,0"
+                            AutomationProperties.Name="麦克风自动校准" VerticalAlignment="Center"/>
+                    <Button Grid.Column="3" Content="刷新" Click="Refresh_Click" Style="{StaticResource SmallFlatButton}"
+                            Background="{DynamicResource Surface3Brush}" Foreground="{DynamicResource TextBrush}"
+                            BorderBrush="{DynamicResource BorderBrush2}" Padding="9,4"
+                            FontFamily="Bahnschrift SemiBold, Segoe UI Semibold" FontSize="11" VerticalAlignment="Center"/>
+                </Grid>
+
+                <ItemsControl ItemsSource="{Binding Devices}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+
+    </DockPanel>
+</Window>
