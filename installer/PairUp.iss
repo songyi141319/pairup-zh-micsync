@@ -1,9 +1,9 @@
 #define MyAppName "声屿 · 多音箱音乐空间"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.4.0-preview.3"
+  #define MyAppVersion "0.4.0-preview.4"
 #endif
 #ifndef WindowsVersion
-  #define WindowsVersion "0.4.0.3"
+  #define WindowsVersion "0.4.0.4"
 #endif
 #ifndef AppBinary
   #define AppBinary "..\publish\PairUp.App.exe"

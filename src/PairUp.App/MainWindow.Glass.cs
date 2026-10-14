@@ -167,6 +167,7 @@ public partial class MainWindow
             isCalibrating = _acousticCalibrationWindow?.IsMeasuring == true,
             isTesting = _devicePreviewCancellation is not null, testingDeviceId = _testingDeviceId,
             audioBusy = AudioBusy,
+            auditionVolume = _auditionVolume,
             devices = _viewModel.Devices.Select(d => new
             {
                 id = d.Id, name = d.Name, kind = d.KindDisplayName, isConnected = d.IsConnected,
@@ -205,6 +206,11 @@ public partial class MainWindow
                 ?? throw new InvalidOperationException("设备列表已改变，请刷新后再试。");
             switch (action)
             {
+                case "auditionVolume":
+                    var auditionPercent = (int)Math.Round(Number(data.GetProperty("value"), 1, 100));
+                    if (!_uiPreview) PairUp.App.Services.CalibrationPreferences.SaveAuditionPercent(auditionPercent);
+                    _auditionVolume = auditionPercent;
+                    break;
                 case "testDevice":
                     await PreviewDeviceAsync(Device(data));
                     break;

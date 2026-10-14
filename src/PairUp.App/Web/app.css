@@ -913,6 +913,22 @@ input[type=range]:disabled{
   padding-top:12px;
   border-top:1px solid var(--line)
 }
+.audition-card{
+  padding:21px 24px 17px;
+  border-radius:25px
+}
+.audition-card .section-heading{gap:10px}
+.audition-volume-control{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:12px
+}
+.audition-volume-control>input{width:100%;min-width:0;margin:0}
+.audition-volume-number{display:flex;align-items:center;gap:5px;font-size:13px;color:var(--muted)}
+.audition-volume-number input[type=number]{width:65px;min-height:36px;padding:7px 6px;text-align:right;font-variant-numeric:tabular-nums}
+.audition-card>.caption{margin:12px 0 0}
+.audition-card>.audition-volume-warning{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
 .soundstage-card{
   padding:21px 24px 8px;
   border-radius:25px
@@ -2601,7 +2617,7 @@ select{
   .play-aside{
     gap:12px
   }
-  .master-card,.soundstage-card{
+  .master-card,.audition-card,.soundstage-card{
     padding:17px 17px 12px
   }
   .section-heading.compact h2{

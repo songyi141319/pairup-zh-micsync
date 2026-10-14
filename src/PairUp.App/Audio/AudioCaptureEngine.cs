@@ -31,11 +31,7 @@ public sealed class AudioCaptureEngine : IDisposable
         if (IsCapturing) return;
 
         // A stopped capture object still owns its native stream and event handlers.
-        _intentionalStop = true;
-        _capture?.Dispose();
-        _capture = null;
-        _sourceDevice?.Dispose();
-        _sourceDevice = null;
+        ReleaseCapture();
 
         using var enumerator = new MMDeviceEnumerator();
         // Reconnecting must retain the original source. Falling back to an existing output
@@ -44,13 +40,13 @@ public sealed class AudioCaptureEngine : IDisposable
             ? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)
             : enumerator.GetDevice(SourceDeviceId);
         if (_sourceDevice.State != DeviceState.Active)
-            throw new InvalidOperationException("原音源已断开。请重新连接原音源；需要更换音源时，请退出并重新打开 PairUp。");
+            throw new InvalidOperationException("原主音源已断开。请重新连接后刷新设备，或在声屿中选择其他主音源；原输出选择已保留。");
         SourceDeviceId = _sourceDevice.ID;
         _capture = new WasapiLoopbackCapture(_sourceDevice);
         if (_sourceFormat is not null && !SameCaptureFormat(_sourceFormat, _capture.WaveFormat))
         {
             _capture.Dispose(); _capture = null;
-            throw new InvalidOperationException("音源的声音格式已改变，请退出并重新打开 PairUp，以重新建立播放连接。");
+            throw new InvalidOperationException("音源的声音格式已改变，请恢复原 Windows 声音格式后刷新，或重新打开声屿以建立新的播放连接。");
         }
         _sourceFormat ??= _capture.WaveFormat;
         ReduceCaptureBufferLatency(_capture);
@@ -81,13 +77,8 @@ public sealed class AudioCaptureEngine : IDisposable
     {
         if (deviceId is not null && string.IsNullOrWhiteSpace(deviceId))
             throw new ArgumentException("请选择有效的主音源。", nameof(deviceId));
-        Stop();
-        var previousCapture = _capture;
-        var previousDevice = _sourceDevice;
-        _capture = null;
-        _sourceDevice = null;
-        try { previousCapture?.Dispose(); }
-        finally { previousDevice?.Dispose(); }
+        try { Stop(); } catch { /* An unplugged stream must not prevent selecting a new source. */ }
+        ReleaseCapture();
         SourceDeviceId = deviceId;
         _sourceFormat = null;
     }
@@ -131,12 +122,24 @@ public sealed class AudioCaptureEngine : IDisposable
         finally { IsCapturing = false; }
     }
 
-    public void Dispose()
+    private void ReleaseCapture()
     {
         _intentionalStop = true;
-        _capture?.Dispose();
+        IsCapturing = false;
+        var capture = _capture;
+        var device = _sourceDevice;
+        // Detach before native disposal. A stale callback cannot feed the current graph even
+        // if the disconnected driver reports a cleanup failure.
         _capture = null;
-        _sourceDevice?.Dispose();
         _sourceDevice = null;
+        try { capture?.Dispose(); }
+        catch { /* Disconnected native handles may already be invalid. */ }
+        finally
+        {
+            try { device?.Dispose(); }
+            catch { /* Continue cleanup/reconnection after device removal. */ }
+        }
     }
+
+    public void Dispose() => ReleaseCapture();
 }

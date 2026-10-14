@@ -44,7 +44,13 @@ public sealed class TrayIconService : IDisposable
             Visible = false,
             ContextMenuStrip = new Forms.ContextMenuStrip()
         };
-        _icon.ContextMenuStrip.Opening += (_, _) => BuildMenu(showWindow, exitApp);
+        _icon.ContextMenuStrip.Opening += (_, args) =>
+        {
+            BuildMenu(showWindow, exitApp);
+            // WinForms pre-cancels an empty menu before Opening. The first opening
+            // populates it here, so explicitly allow that same click to display it.
+            args.Cancel = false;
+        };
         _icon.DoubleClick += (_, _) => showWindow();
     }
 

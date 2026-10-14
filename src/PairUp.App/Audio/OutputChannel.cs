@@ -19,6 +19,7 @@ public sealed class OutputChannel : IDisposable
     private readonly AudioClient? _renderClient;
 
     public string DeviceId { get; }
+    public bool IsPlaying => _output.PlaybackState == PlaybackState.Playing;
 
     public OutputChannel(MMDevice device, WaveFormat sourceFormat)
     {

@@ -1,43 +1,240 @@
 <Window x:Class="PairUp.App.AcousticCalibrationWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="麦克风自动校准" Language="zh-CN" Width="780" Height="700" MinWidth="650" MinHeight="560"
-        WindowStartupLocation="CenterOwner" Background="{DynamicResource BgBrush}"
-        Foreground="{DynamicResource TextBrush}" FontFamily="Segoe UI" Closing="Window_Closing">
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <StackPanel>
-            <TextBlock Text="用麦克风对齐音箱" FontSize="23" FontWeight="SemiBold" Margin="0,0,0,12"/>
-            <TextBlock Text="把独立麦克风放在平常听音乐的位置，音箱保持原位。主音源与选中音箱先统一使用 20% 音量；只有测试音偏弱时，才依次尝试 30%、40%、50%。50% 仍不可靠时停止，提示你人工检查。" TextWrapping="Wrap" FontSize="14"/>
-            <TextBlock Text="测量时暂时静音音乐，并解除所选设备与声屿应用的静音。每台在同一档音量测三次；测输出时，先响音源，再响待测音箱。完成、失败或取消后恢复原音量和静音；若设备断开导致无法恢复，会显示说明。" TextWrapping="Wrap" FontSize="14" Margin="0,8,0,0"/>
-            <TextBlock Text="录音只在电脑内存里分析，不保存或上传。耳机需放在麦克风旁才能测量；连接、收音或失真问题不会触发提高音量。" TextWrapping="Wrap" Foreground="{DynamicResource TextMutedBrush}" Margin="0,8,0,16"/>
-        </StackPanel>
-        <StackPanel Grid.Row="1" x:Name="SelectionPanel">
-            <TextBlock Text="收音麦克风" FontWeight="SemiBold" Margin="0,0,0,6"/>
-            <ComboBox x:Name="MicrophoneCombo" DisplayMemberPath="Name" SelectedValuePath="DeviceId" MinHeight="32" AutomationProperties.Name="收音麦克风"/>
-            <TextBlock x:Name="SourceText" TextWrapping="Wrap" Margin="0,14,0,8"/>
-            <ItemsControl x:Name="TargetsList">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsEnabled="{Binding CanChangeSelection}"
-                                  Content="{Binding Name}" Padding="0,4" AutomationProperties.Name="待校准音箱"/>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <CheckBox x:Name="AutoApplyCheck" IsChecked="True" Content="测量可靠时，自动应用延迟" Margin="0,12,0,14"/>
-        </StackPanel>
-        <ProgressBar Grid.Row="2" x:Name="ProgressBar" Height="6" Visibility="Collapsed" IsIndeterminate="True" Margin="0,0,0,12"/>
-        <TextBlock Grid.Row="3" x:Name="StatusText" Text="准备就绪。将从 20% 开始；点击开始后，请保持安静。" TextWrapping="Wrap" Margin="0,0,0,12" FontSize="14"/>
-        <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
-            <TextBlock x:Name="ResultsText" TextWrapping="Wrap" FontSize="14" LineHeight="24"/>
+        Title="声屿 · 麦克风校准" Language="zh-CN" Width="900" Height="820" MinWidth="720" MinHeight="620"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource CalBackground}"
+        Foreground="{DynamicResource CalText}" FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True" Closing="Window_Closing">
+    <Window.Resources>
+        <SolidColorBrush x:Key="CalBackground" Color="#F2F5FA"/>
+        <SolidColorBrush x:Key="CalSurface" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="CalSecondary" Color="#F0F4F9"/>
+        <SolidColorBrush x:Key="CalBorder" Color="#DCE3EE"/>
+        <SolidColorBrush x:Key="CalText" Color="#243247"/>
+        <SolidColorBrush x:Key="CalMuted" Color="#5C6B80"/>
+        <SolidColorBrush x:Key="CalAccent" Color="#4966BC"/>
+        <SolidColorBrush x:Key="CalOnAccent" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="CalAccentSoft" Color="#EAF0FF"/>
+        <SolidColorBrush x:Key="CalWarning" Color="#80511E"/>
+        <SolidColorBrush x:Key="CalWarningFill" Color="#FFF3DF"/>
+        <Style x:Key="CalCard" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CalSurface}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource CalBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="Padding" Value="20"/>
+        </Style>
+        <Style x:Key="CalHeading" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/><Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+        </Style>
+        <Style x:Key="CalCaption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/><Setter Property="Foreground" Value="{DynamicResource CalMuted}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/><Setter Property="LineHeight" Value="19"/>
+        </Style>
+        <Style x:Key="CalButton" TargetType="Button">
+            <Setter Property="MinHeight" Value="40"/><Setter Property="Padding" Value="17,9"/>
+            <Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="{DynamicResource CalSurface}"/><Setter Property="Foreground" Value="{DynamicResource CalText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource CalBorder}"/><Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+                <Border x:Name="Chrome" CornerRadius="11" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.85"/></Trigger>
+                    <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.7"/></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource CalAccent}"/><Setter TargetName="Chrome" Property="BorderThickness" Value="2"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.45"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="CalMode" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource CalMuted}"/><Setter Property="Padding" Value="12,9"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+                <Border x:Name="Chrome" CornerRadius="9" Background="Transparent" BorderBrush="Transparent" BorderThickness="1" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsChecked" Value="True"><Setter TargetName="Chrome" Property="Background" Value="{DynamicResource CalSurface}"/><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource CalBorder}"/><Setter Property="Foreground" Value="{DynamicResource CalText}"/><Setter Property="FontWeight" Value="SemiBold"/></Trigger>
+                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource CalAccent}"/></Trigger>
+                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.5"/></Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="CalNumber" TargetType="TextBox">
+            <Setter Property="Width" Value="64"/><Setter Property="MinHeight" Value="34"/><Setter Property="Padding" Value="8,6"/>
+            <Setter Property="TextAlignment" Value="Right"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Background" Value="{DynamicResource CalSecondary}"/><Setter Property="Foreground" Value="{DynamicResource CalText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource CalBorder}"/><Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="MaxLength" Value="3"/><Setter Property="InputScope" Value="Number"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox">
+                <Border x:Name="Chrome" CornerRadius="8" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}"><ScrollViewer x:Name="PART_ContentHost"/></Border>
+                <ControlTemplate.Triggers><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource CalAccent}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style x:Key="CalCombo" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{DynamicResource CalText}"/><Setter Property="Background" Value="{DynamicResource CalSecondary}"/>
+            <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+                <Grid>
+                    <Border x:Name="Chrome" CornerRadius="9" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource CalBorder}" BorderThickness="1"/>
+                    <ToggleButton Focusable="False" IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" ClickMode="Press">
+                        <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Grid Background="Transparent"><Path Data="M 0 0 L 4 4 L 8 0" Stroke="{DynamicResource CalMuted}" StrokeThickness="1.5" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"/></Grid></ControlTemplate></ToggleButton.Template>
+                    </ToggleButton>
+                    <ContentPresenter Margin="11,8,32,8" IsHitTestVisible="False" VerticalAlignment="Center" Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"/>
+                    <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="None">
+                        <Border Background="{DynamicResource CalSurface}" BorderBrush="{DynamicResource CalBorder}" BorderThickness="1" CornerRadius="9" Padding="6" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}" MaxHeight="300">
+                            <ScrollViewer CanContentScroll="True" VerticalScrollBarVisibility="Auto"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
+                        </Border>
+                    </Popup>
+                </Grid>
+                <ControlTemplate.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource CalAccent}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.5"/></Trigger></ControlTemplate.Triggers>
+            </ControlTemplate></Setter.Value></Setter>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource CalText}"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid Margin="26,22,26,16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="让声音，到达同一刻。" FontSize="25" FontWeight="SemiBold"/>
+                <TextBlock Text="把独立麦克风放在平常听音的位置，音箱保持原位。" Style="{StaticResource CalCaption}" Margin="0,7,0,0"/>
+            </StackPanel>
+            <Border Grid.Column="1" Background="{DynamicResource CalAccentSoft}" CornerRadius="12" Padding="13,8" VerticalAlignment="Top" Margin="18,3,0,0">
+                <TextBlock Text="麦克风校准" Foreground="{DynamicResource CalAccent}" FontSize="12"/>
+            </Border>
+        </Grid>
+        <Border Grid.Row="1" Style="{StaticResource CalCard}" Margin="26,0,26,14" Padding="18,15">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <StackPanel><TextBlock x:Name="StepTitle" Text="准备开始" FontSize="17" FontWeight="SemiBold"/><TextBlock x:Name="CurrentDeviceText" Style="{StaticResource CalCaption}" Text="先确认麦克风、音箱与测试音量。" Margin="0,4,12,0"/></StackPanel>
+                <Border Grid.Column="1" Background="{DynamicResource CalAccentSoft}" CornerRadius="9" Padding="10,6" VerticalAlignment="Top"><TextBlock x:Name="CurrentVolumeText" Text="未开始" Foreground="{DynamicResource CalAccent}" FontWeight="SemiBold" FontSize="12"/></Border>
+                <TextBlock Grid.Row="1" Grid.ColumnSpan="2" x:Name="StatusText" Text="准备好后，点击下方开始。测量期间请保持安静。" TextWrapping="Wrap" LineHeight="20" Margin="0,9,0,0"/>
+                <StackPanel Grid.Row="2" Grid.ColumnSpan="2" x:Name="ProgressPanel" Visibility="Collapsed" Margin="0,11,0,0">
+                    <ProgressBar x:Name="ProgressBar" Height="5" Minimum="0" Maximum="100" IsIndeterminate="True" Foreground="{DynamicResource CalAccent}" Background="{DynamicResource CalSecondary}" BorderThickness="0"/>
+                    <TextBlock x:Name="ProgressCaption" Style="{StaticResource CalCaption}" Margin="0,5,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+        <Border Grid.Row="2" x:Name="RestorationWarningPanel" Visibility="Collapsed" Background="{DynamicResource CalWarningFill}" BorderBrush="{DynamicResource CalWarning}" BorderThickness="1" CornerRadius="12" Padding="16,12" Margin="26,0,26,14">
+            <StackPanel><TextBlock Text="请检查原播放状态" FontWeight="SemiBold" Foreground="{DynamicResource CalWarning}"/>
+                <ScrollViewer MaxHeight="100" VerticalScrollBarVisibility="Auto"><TextBlock x:Name="RestorationWarningText" TextWrapping="Wrap" LineHeight="20" Foreground="{DynamicResource CalWarning}" Margin="0,5,0,0"/></ScrollViewer>
+            </StackPanel>
+        </Border>
+        <ScrollViewer Grid.Row="3" x:Name="ContentScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="26,0,26,18">
+            <StackPanel>
+                <Border x:Name="SelectionSummaryPanel" Visibility="Collapsed" Style="{StaticResource CalCard}" Padding="18,14">
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,14,0"><TextBlock Text="本次设置" FontWeight="SemiBold"/><TextBlock x:Name="SelectionSummaryText" Style="{StaticResource CalCaption}" Margin="0,5,0,0"/></StackPanel>
+                        <Button Grid.Column="1" x:Name="EditSettingsButton" Content="调整设置" Style="{StaticResource CalButton}" Click="EditSettings_Click" VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+                <Grid x:Name="SelectionPanel">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Border Style="{StaticResource CalCard}" VerticalAlignment="Top">
+                        <StackPanel>
+                            <TextBlock Text="设备与麦克风" Style="{StaticResource CalHeading}"/>
+                            <Label Content="收音麦克风" Target="{Binding ElementName=MicrophoneCombo}" Foreground="{DynamicResource CalMuted}" Padding="0" Margin="0,0,0,6" FontSize="12"/>
+                            <ComboBox x:Name="MicrophoneCombo" SelectedValuePath="DeviceId" MinHeight="36" Style="{StaticResource CalCombo}" HorizontalContentAlignment="Stretch" SelectionChanged="Microphone_Changed" AutomationProperties.Name="收音麦克风">
+                                <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" TextWrapping="Wrap"/></DataTemplate></ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Text="请使用独立麦克风，避免蓝牙音箱进入通话模式。" Style="{StaticResource CalCaption}" Margin="0,7,0,16"/>
+                            <TextBlock x:Name="TargetCountText" Text="参与校准的音箱" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                            <ItemsControl x:Name="TargetsList"><ItemsControl.ItemTemplate><DataTemplate>
+                                <Border BorderBrush="{DynamicResource CalBorder}" BorderThickness="0,0,0,1" Padding="0,10">
+                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsEnabled="{Binding CanChangeSelection}" Checked="TargetSelection_Changed" Unchecked="TargetSelection_Changed" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding Name}">
+                                        <StackPanel Margin="6,0,0,0"><TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" TextWrapping="Wrap" Foreground="{DynamicResource CalText}"/>
+                                            <TextBlock Text="{Binding Hint}" Style="{StaticResource CalCaption}" Margin="0,3,0,0"/>
+                                        </StackPanel>
+                                    </CheckBox>
+                                </Border>
+                            </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                            <TextBlock x:Name="SourceText" Style="{StaticResource CalCaption}" Margin="0,12,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Border Grid.Column="2" Style="{StaticResource CalCard}" VerticalAlignment="Top">
+                        <StackPanel>
+                            <TextBlock Text="测试音量" Style="{StaticResource CalHeading}"/>
+                            <Border Background="{DynamicResource CalSecondary}" CornerRadius="12" Padding="3" Margin="0,0,0,13">
+                                <UniformGrid Columns="2"><RadioButton x:Name="AutomaticMode" Content="自动调节" GroupName="VolumeMode" IsChecked="True" Style="{StaticResource CalMode}" Checked="VolumeOptions_Changed"/><RadioButton x:Name="ManualMode" Content="手动固定" GroupName="VolumeMode" Style="{StaticResource CalMode}" Checked="VolumeOptions_Changed"/></UniformGrid>
+                            </Border>
+                            <StackPanel x:Name="AutomaticVolumePanel">
+                                <TextBlock Text="只有测试音偏弱时才升档，自动音量不会超过 50%。" Style="{StaticResource CalCaption}" Margin="0,0,0,12"/>
+                                <Grid Margin="0,0,0,9"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <Label Content="自定起始" Target="{Binding ElementName=StartPercentBox}" Foreground="{DynamicResource CalText}" Padding="0" VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="1" x:Name="StartPercentBox" Text="20" Style="{StaticResource CalNumber}" TextChanged="VolumeOptions_Changed" AutomationProperties.Name="自动起始音量，百分比，1至50"/>
+                                    <TextBlock Grid.Column="2" Text="%" Margin="7,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <Label Content="自动上限" Target="{Binding ElementName=MaximumPercentBox}" Foreground="{DynamicResource CalText}" Padding="0" VerticalAlignment="Center"/>
+                                    <TextBox Grid.Column="1" x:Name="MaximumPercentBox" Text="50" Style="{StaticResource CalNumber}" TextChanged="VolumeOptions_Changed" AutomationProperties.Name="自动音量上限，百分比，1至50"/>
+                                    <TextBlock Grid.Column="2" Text="%" Margin="7,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                                <CheckBox x:Name="UseTimeScheduleCheck" Content="按时段选择起始音量" Checked="VolumeOptions_Changed" Unchecked="VolumeOptions_Changed" Margin="0,0,0,5"/>
+                                <StackPanel x:Name="TimeSchedulePanel" Visibility="Collapsed" Margin="0,8,0,0">
+                                    <TextBlock Text="使用这台电脑的本地时间，开始后不再改变时段。" Style="{StaticResource CalCaption}" Margin="0,0,0,10"/>
+                                    <Grid Margin="0,0,0,5"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="72"/></Grid.ColumnDefinitions><TextBlock Text="时段" Style="{StaticResource CalCaption}"/><TextBlock Grid.Column="1" Text="起始 %" Style="{StaticResource CalCaption}" HorizontalAlignment="Center"/><TextBlock Grid.Column="2" Text="上限 %" Style="{StaticResource CalCaption}" HorizontalAlignment="Center"/></Grid>
+                                    <Grid Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="72"/></Grid.ColumnDefinitions><StackPanel VerticalAlignment="Center"><TextBlock Text="夜间"/><TextBlock Text="22:00–08:00" Style="{StaticResource CalCaption}"/></StackPanel><TextBox Grid.Column="1" x:Name="NightPercentBox" Text="10" Style="{StaticResource CalNumber}" TextChanged="VolumeOptions_Changed" AutomationProperties.Name="夜间起始音量，百分比，1至50"/><TextBox Grid.Column="2" x:Name="NightMaximumPercentBox" Text="20" Style="{StaticResource CalNumber}" TextChanged="VolumeOptions_Changed" AutomationProperties.Name="夜间音量上限，百分比，1至50"/></Grid>
+                                    <Grid Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="72"/></Grid.ColumnDefinitions><StackPanel VerticalAlignment="Center"><TextBlock Text="早间"/><TextBlock Text="08:00–12:00" Style="{StaticResource CalCaption}"/></StackPanel><TextBox Grid.Column="1" x:Name="MorningPercentBox" Text="20" Style="{StaticResource CalNumber}" TextChanged="VolumeOptions_Changed" AutomationProperties.Name="早间起始音量，百分比，1至50"/><TextBox Grid.Column="2" x:Name="MorningMaximumPercentBox" Text="30" Style="{StaticResource CalNumber}" TextChanged="VolumeOptions_Changed" AutomationProperties.Name="早间音量上限，百分比，1至50"/></Grid>
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="72"/><ColumnDefinition Width="72"/></Grid.ColumnDefinitions><StackPanel VerticalAlignment="Center"><TextBlock Text="日间"/><TextBlock Text="12:00–22:00" Style="{StaticResource CalCaption}"/></StackPanel><TextBox Grid.Column="1" x:Name="DayPercentBox" Text="30" Style="{StaticResource CalNumber}" TextChanged="VolumeOptions_Changed" AutomationProperties.Name="日间起始音量，百分比，1至50"/><TextBox Grid.Column="2" x:Name="DayMaximumPercentBox" Text="50" Style="{StaticResource CalNumber}" TextChanged="VolumeOptions_Changed" AutomationProperties.Name="日间音量上限，百分比，1至50"/></Grid>
+                                    <TextBlock Text="各时段还会受上方自动上限限制。" Style="{StaticResource CalCaption}" Margin="0,8,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel x:Name="ManualVolumePanel" Visibility="Collapsed">
+                                <TextBlock Text="整次测量保持同一音量，不会自动升档。" Style="{StaticResource CalCaption}" Margin="0,0,0,12"/>
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="固定音量" VerticalAlignment="Center"/><TextBox Grid.Column="1" x:Name="ManualPercentBox" Text="20" Style="{StaticResource CalNumber}" TextChanged="ManualPercent_Changed" AutomationProperties.Name="手动固定音量，百分比，1至100"/><TextBlock Grid.Column="2" Text="%" Margin="7,0,0,0" VerticalAlignment="Center"/></Grid>
+                                <Slider x:Name="ManualVolumeSlider" Minimum="1" Maximum="100" Value="20" TickFrequency="1" IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10" Focusable="True" ValueChanged="ManualSlider_Changed" Margin="0,12,0,4" AutomationProperties.Name="手动固定音量"/>
+                                <Grid Margin="0,0,0,6"><TextBlock Text="1%" Style="{StaticResource CalCaption}"/><TextBlock Text="100%" Style="{StaticResource CalCaption}" HorizontalAlignment="Right"/></Grid>
+                                <TextBlock x:Name="ManualLoudHint" Text="较响，建议先单台试听。" Foreground="{DynamicResource CalWarning}" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="Collapsed"/>
+                            </StackPanel>
+                            <Border Background="{DynamicResource CalAccentSoft}" CornerRadius="10" Padding="12" Margin="0,14,0,0">
+                                <StackPanel><TextBlock Text="本次音量安排" Foreground="{DynamicResource CalAccent}" FontSize="12" FontWeight="SemiBold"/><TextBlock x:Name="VolumePlanText" Text="20% → 30% → 40% → 50%" TextWrapping="Wrap" LineHeight="20" Margin="0,5,0,0"/><TextBlock x:Name="VolumePlanHint" Style="{StaticResource CalCaption}" Margin="0,5,0,0"/></StackPanel>
+                            </Border>
+                            <TextBlock x:Name="VolumeValidationText" Foreground="{DynamicResource CalWarning}" TextWrapping="Wrap" Margin="0,9,0,0" Visibility="Collapsed"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+                <Border x:Name="ResultsCard" Style="{StaticResource CalCard}" Margin="0,14,0,0">
+                    <StackPanel>
+                        <Grid><TextBlock Text="测量结果" Style="{StaticResource CalHeading}"/><CheckBox x:Name="AutoApplyCheck" IsChecked="True" Content="可靠时自动应用" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="18,1,0,0"/></Grid>
+                        <TextBlock x:Name="ResultsEmptyText" Text="每台音箱测量三次。结果可靠且原播放状态恢复后，才会应用延迟。" Style="{StaticResource CalCaption}"/>
+                        <ItemsControl x:Name="ResultsList"><ItemsControl.ItemTemplate><DataTemplate>
+                            <Border BorderBrush="{DynamicResource CalBorder}" BorderThickness="0,1,0,0" Padding="0,13" Margin="0,5,0,0">
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,18,0"><TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" TextWrapping="Wrap" FontWeight="SemiBold"/><TextBlock Text="{Binding Timing}" Style="{StaticResource CalCaption}" Margin="0,4,0,0"/><TextBlock Text="{Binding Repeatability}" Style="{StaticResource CalCaption}"/></StackPanel>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Delay}" Foreground="{DynamicResource CalAccent}" FontSize="17" FontWeight="SemiBold" HorizontalAlignment="Right"/><TextBlock Text="{Binding State}" Style="{StaticResource CalCaption}" HorizontalAlignment="Right" Margin="0,3,0,0"/></StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                        <TextBlock x:Name="ResultsSummaryText" TextWrapping="Wrap" LineHeight="21" Margin="0,8,0,0" Visibility="Collapsed"/>
+                    </StackPanel>
+                </Border>
+                <Grid Margin="4,17,4,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Expander x:Name="DetailsExpander" Header="技术详情与测量说明" IsExpanded="False" Foreground="{DynamicResource CalMuted}" Margin="0,6,12,0">
+                    <StackPanel Margin="0,12,0,0">
+                        <TextBlock Style="{StaticResource CalCaption}" Text="测量时暂时静音音乐，解除所选设备与声屿应用的静音。测试结束后恢复原音量与静音；设备断开等异常会单独提示。录音只在电脑内存里分析，不保存或上传。"/>
+                        <TextBlock Style="{StaticResource CalCaption}" Text="耳机需要放在麦克风旁。连接、收音或失真问题不会触发自动提高音量。结果中的毫秒表示声音到达或补偿的时间。" Margin="0,7,0,12"/>
+                        <TextBox x:Name="DetailsText" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="70" MaxHeight="230" VerticalScrollBarVisibility="Auto" Padding="12" Background="{DynamicResource CalSurface}" Foreground="{DynamicResource CalMuted}" BorderBrush="{DynamicResource CalBorder}" Text="还没有开始测量。" AutomationProperties.Name="校准过程与诊断详情"/>
+                    </StackPanel>
+                </Expander>
+                <Button Grid.Column="1" x:Name="CopyDiagnosticsButton" Content="复制诊断" Style="{StaticResource CalButton}" Click="CopyDiagnostics_Click" IsEnabled="False" VerticalAlignment="Top"/>
+                </Grid>
+            </StackPanel>
         </ScrollViewer>
-        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-            <Button x:Name="StartButton" Content="开始自动校准" Click="Start_Click" Padding="18,9" Margin="0,0,10,0" AutomationProperties.Name="开始自动校准"/>
-            <Button x:Name="ApplyButton" Content="应用测量结果" Click="Apply_Click" Padding="16,9" IsEnabled="False" Margin="0,0,10,0"/>
-            <Button x:Name="CloseButton" Content="关闭" Click="Close_Click" Padding="16,9"/>
-        </StackPanel>
+        <Border Grid.Row="4" Background="{DynamicResource CalSurface}" BorderBrush="{DynamicResource CalBorder}" BorderThickness="0,1,0,0" Padding="26,15">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center" Margin="0,0,14,0"><TextBlock x:Name="FooterStatusText" Text="音量设置在开始时保存。" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource CalMuted}"/><TextBlock Text="原延迟会保留，直到可靠结果被应用。" FontSize="11" Foreground="{DynamicResource CalMuted}" Margin="0,3,0,0" TextWrapping="Wrap"/></StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button x:Name="CloseButton" Content="关闭" Click="Close_Click" Style="{StaticResource CalButton}" MinWidth="88" Margin="0,0,9,0" AutomationProperties.Name="关闭或取消测量"/>
+                    <Button x:Name="ApplyButton" Content="应用结果" Click="Apply_Click" Style="{StaticResource CalButton}" IsEnabled="False" Margin="0,0,9,0"/>
+                    <Button x:Name="StartButton" Content="开始校准" Click="Start_Click" Style="{StaticResource CalButton}" Background="{DynamicResource CalAccent}" Foreground="{DynamicResource CalOnAccent}" BorderBrush="{DynamicResource CalAccent}" AutomationProperties.Name="开始麦克风校准"/>
+                </StackPanel>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

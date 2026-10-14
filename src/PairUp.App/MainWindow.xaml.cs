@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     public MainWindow(bool uiPreview = false)
     {
         _uiPreview = uiPreview;
+        if (!uiPreview) _auditionVolume = CalibrationPreferences.LoadAuditionPercent();
         InitializeComponent();
         DataContext = _viewModel;
         ThemeService.ApplyCurrentSystemTheme();
@@ -269,7 +270,7 @@ public partial class MainWindow : Window
                 {
                     // No installer asset published on the release — fall back to just opening it.
                     var openRelease = MessageBox.Show(
-                        $"PairUp v{result.LatestVersion} 已发布（当前版本 v{AppVersion}）。\n\n" +
+                        $"声屿 v{result.LatestVersion} 已发布（当前版本 v{AppVersion}）。\n\n" +
                         "该版本没有提供安装包，因此无法自动更新。要打开版本发布页面吗？",
                         "发现更新", MessageBoxButton.YesNo, MessageBoxImage.Information);
 
@@ -285,8 +286,8 @@ public partial class MainWindow : Window
                 }
 
                 var install = MessageBox.Show(
-                    $"PairUp v{result.LatestVersion} 已发布（当前版本 v{AppVersion}）。\n\n" +
-                    "现在下载并安装吗？PairUp 随后会退出并打开安装程序。\n\n" +
+                    $"声屿 v{result.LatestVersion} 已发布（当前版本 v{AppVersion}）。\n\n" +
+                    "现在下载并安装吗？声屿随后会退出并打开安装程序。\n\n" +
                     "该安装程序尚未经过数字签名，Windows 可能会显示“已保护你的电脑”提示。要继续，请选择“更多信息”，再选择“仍要运行”。",
                     "发现更新", MessageBoxButton.YesNo, MessageBoxImage.Information);
 
@@ -406,22 +407,50 @@ public partial class MainWindow : Window
     private void LoadDevices()
     {
         if (_uiPreview) return;
-        var defaultDeviceId = _audioEngine.SourceDeviceId ?? _deviceManager.GetDefaultDeviceId();
-        var (savedMasterVolume, savedSettings) = _settingsStore.Load();
-        var devices = _deviceManager.GetOutputDevices();
-        var volumes = WindowsDeviceVolume.Read(devices.Select(d => d.Id));
-
-        _isRestoringSettings = true;
+        var previousDevices = _viewModel.Devices.ToArray();
+        var warnings = new List<string>();
         try
         {
-            _viewModel.MasterVolume = volumes.TryGetValue(defaultDeviceId, out var source) ? source.Percent : savedMasterVolume;
-            _lastSourceVolume ??= source?.Percent;
-            _viewModel.Devices.Clear();
+            // Prepare detached rows first. PropertyChanged must never initiate a connection
+            // while an incomplete list is being rebuilt or overwrite a saved output choice.
+            var snapshot = _deviceManager.GetOutputSnapshot();
+            warnings.AddRange(snapshot.Warnings);
+            var (savedMasterVolume, savedSettings) = _settingsStore.Load();
+            foreach (var previous in previousDevices)
+                savedSettings[previous.Id] = new(previous.Id, previous.IsConnected, previous.Volume, previous.LatencyMs,
+                    previous.IsFavorite, previous.BassBoost, previous.Treble, previous.IsMono, previous.Spatial);
+            var defaultDeviceId = _audioEngine.SourceDeviceId ?? _viewModel.DefaultDevice?.Id;
+            if (defaultDeviceId is null)
+            {
+                defaultDeviceId = _deviceManager.TryGetDefaultDeviceId(out var defaultWarning);
+                if (defaultWarning is not null) warnings.Add(defaultWarning);
+            }
+            var devices = snapshot.Devices.ToList();
+            var seen = new HashSet<string>(devices.Select(device => device.Id), StringComparer.OrdinalIgnoreCase);
+            foreach (var previous in previousDevices)
+                if (seen.Add(previous.Id))
+                    devices.Add(new AudioDeviceInfo
+                    {
+                        Id = previous.Id, Name = previous.Name, Kind = previous.Kind,
+                        State = snapshot.IsComplete ? NAudio.CoreAudioApi.DeviceState.NotPresent : previous.State
+                    });
+            foreach (var saved in savedSettings.Values.Where(saved => saved.IsConnected || saved.IsFavorite))
+                if (seen.Add(saved.DeviceId))
+                    devices.Add(new AudioDeviceInfo
+                    {
+                        Id = saved.DeviceId, Name = "未连接的已保存设备", Kind = DeviceKind.Other,
+                        State = NAudio.CoreAudioApi.DeviceState.NotPresent
+                    });
+            if (defaultDeviceId is not null && seen.Add(defaultDeviceId))
+                devices.Add(new AudioDeviceInfo
+                {
+                    Id = defaultDeviceId, Name = "原主音源", Kind = DeviceKind.Other,
+                    State = NAudio.CoreAudioApi.DeviceState.NotPresent
+                });
+            var volumes = WindowsDeviceVolume.Read(devices.Select(device => device.Id));
             foreach (var device in devices)
             {
-                device.IsSystemDefault = device.Id == defaultDeviceId;
-                device.PropertyChanged += Device_PropertyChanged;
-
+                device.IsSystemDefault = string.Equals(device.Id, defaultDeviceId, StringComparison.OrdinalIgnoreCase);
                 if (savedSettings.TryGetValue(device.Id, out var saved))
                 {
                     device.Volume = volumes.TryGetValue(device.Id, out var state) ? state.Percent : saved.Volume;
@@ -434,23 +463,81 @@ public partial class MainWindow : Window
                     device.IsConnected = saved.IsConnected && !device.IsSystemDefault;
                 }
                 else if (volumes.TryGetValue(device.Id, out var state)) device.Volume = state.Percent;
-
-                _viewModel.Devices.Add(device);
+                device.IsOutOfRange = device.State != NAudio.CoreAudioApi.DeviceState.Active;
             }
+
+            var defaultDevice = devices.FirstOrDefault(device => device.IsSystemDefault);
+            var sourceReady = _audioEngine.RefreshSourceAvailability(defaultDevice?.State == NAudio.CoreAudioApi.DeviceState.Active);
+            if (!sourceReady) warnings.Add(_audioEngine.CaptureError ?? "主音源暂时不可用，输出选择已保留。");
+            foreach (var device in devices)
+            {
+                if (device.IsSystemDefault)
+                {
+                    device.IsOutOfRange = !sourceReady;
+                    device.SyncStatusText = sourceReady ? "主音源已连接" : "主音源等待恢复";
+                    device.SyncDetailsText = sourceReady ? "声音直接由 Windows 播放。" : _audioEngine.CaptureError ?? "重新连接后刷新，或选择其他主音源。";
+                    continue;
+                }
+                if (!device.IsConnected || device.State != NAudio.CoreAudioApi.DeviceState.Active)
+                    _audioEngine.RemoveOutput(device.Id);
+                if (_audioEngine.IsOutputResumeSuppressed(device.Id))
+                {
+                    device.IsOutOfRange = true;
+                    device.SyncStatusText = "音量恢复未完成，已暂停";
+                    device.SyncDetailsText = "请先确认该设备的 Windows 音量，再手动重新开启输出；刷新不会自动恢复播放。";
+                    warnings.Add($"“{device.Name}”仍处于安全暂停，请确认 Windows 音量后重新开启。");
+                    continue;
+                }
+                if (!device.IsConnected) continue;
+                if (device.State != NAudio.CoreAudioApi.DeviceState.Active || !sourceReady)
+                {
+                    device.IsOutOfRange = true;
+                    device.SyncStatusText = device.State != NAudio.CoreAudioApi.DeviceState.Active ? "设备未连接，已保留选择" : "等待主音源恢复";
+                    device.SyncDetailsText = "原音量、延迟与输出选择已保留；设备重新连接后刷新即可重试。";
+                    continue;
+                }
+                var result = _audioEngine.TryAddOutput(device.Id, device.LatencyMs, device.BassBoost, device.Treble, device.IsMono, device.Spatial);
+                if (result != AddOutputResult.Success)
+                {
+                    device.IsOutOfRange = true;
+                    device.SyncStatusText = "暂未恢复，已保留选择";
+                    device.SyncDetailsText = result == AddOutputResult.UnsupportedFormat
+                        ? "音源和输出需使用单声道或立体声，请检查 Windows 声音格式。"
+                        : _audioEngine.CaptureError ?? "设备暂时无法连接，请检查连接后刷新重试。";
+                    warnings.Add($"“{device.Name}”：{device.SyncDetailsText}");
+                }
+            }
+
+            // All endpoint reads and connection attempts are finished before replacing rows.
+            _isRestoringSettings = true;
+            foreach (var previous in previousDevices) previous.PropertyChanged -= Device_PropertyChanged;
+            _viewModel.Devices.Clear();
+            foreach (var device in devices) _viewModel.Devices.Add(device);
+            foreach (var device in devices) device.PropertyChanged += Device_PropertyChanged;
+            if (defaultDeviceId is not null && volumes.TryGetValue(defaultDeviceId, out var source))
+            {
+                _viewModel.MasterVolume = source.Percent;
+                _viewModel.IsSourceMuted = source.Muted;
+                _lastSourceVolume = source.Percent;
+            }
+            else if (previousDevices.Length == 0) _viewModel.MasterVolume = savedMasterVolume;
+            _viewModel.DefaultDevice = defaultDevice;
+            _viewModel.SourceName = defaultDevice is null ? "主音源未连接" : defaultDevice.Name + (sourceReady ? "" : "（等待恢复）");
+            _deviceConnectionWarning = warnings.Count == 0 ? null : string.Join("；", warnings.Distinct());
+            var playing = devices.Count(device => device.IsConnected && !device.IsOutOfRange);
+            var waiting = devices.Count(device => device.IsConnected && device.IsOutOfRange);
+            _viewModel.ConnectedSummary = waiting == 0 ? $"{playing} / {devices.Count} 个设备正在同步播放" : $"{playing} 个设备正在同步播放，{waiting} 个已选择的设备等待恢复";
+            ResortDevices();
+            RebuildFavorites();
+        }
+        catch (Exception ex)
+        {
+            _deviceConnectionWarning = "刷新设备未完成，已保留原设备列表和输出选择：" + ex.Message;
         }
         finally
         {
             _isRestoringSettings = false;
         }
-
-        var defaultDevice = _viewModel.Devices.FirstOrDefault(d => d.IsSystemDefault);
-        _viewModel.SourceName = defaultDevice?.Name ?? "系统播放音源";
-        _viewModel.DefaultDevice = defaultDevice;
-        SyncWindowsVolumes(followSourceChanges: false);
-
-        UpdateConnectedSummary();
-        ResortDevices();
-        RebuildFavorites();
         RefreshStatusText();
     }
 
@@ -546,7 +633,8 @@ public partial class MainWindow : Window
                 {
                     var result = _audioEngine.TryAddOutput(
                         device.Id, device.LatencyMs,
-                        device.BassBoost, device.Treble, device.IsMono, device.Spatial);
+                        device.BassBoost, device.Treble, device.IsMono, device.Spatial,
+                        explicitReconnect: !_isRestoringSettings);
 
                     if (result == AddOutputResult.WouldEcho)
                     {
@@ -573,6 +661,13 @@ public partial class MainWindow : Window
                     }
                     else if (result == AddOutputResult.CalibrationInProgress)
                         device.IsConnected = false;
+                    else if (result == AddOutputResult.SafetyPaused)
+                    {
+                        device.IsOutOfRange = true;
+                        device.SyncStatusText = "音量恢复未完成，已暂停";
+                        device.SyncDetailsText = "请确认 Windows 音量后手动重新开启输出；刷新不会解除安全暂停。";
+                        _deviceConnectionWarning = $"“{device.Name}”仍处于安全暂停。";
+                    }
                     else if (result == AddOutputResult.SourceUnavailable)
                     {
                         device.IsConnected = false;

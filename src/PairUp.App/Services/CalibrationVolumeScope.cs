@@ -61,11 +61,11 @@ internal sealed class CalibrationVolumeScope : IDisposable
         _captured = true;
     }
 
-    public void ApplyLevel(int percent)
+    public void ApplyLevel(int percent, bool manual = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!_captured) throw new InvalidOperationException("尚未保存原音量，不能开始校准。");
-        if (percent is not (20 or 30 or 40 or 50)) throw new ArgumentOutOfRangeException(nameof(percent));
+        if (percent < 1 || percent > (manual ? 100 : 50)) throw new ArgumentOutOfRangeException(nameof(percent));
         foreach (var endpoint in _endpoints)
         {
             EnsureConnected(endpoint);

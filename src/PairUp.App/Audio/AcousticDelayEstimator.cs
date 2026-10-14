@@ -234,7 +234,7 @@ public static class AcousticAlignment
             if (measurement.DeviceId == sourceId) continue;
             var compensation = source.ArrivalMs - measurement.ArrivalMs;
             if (compensation < 0)
-                return new(false, new(), $"“{measurement.Name}”比音源慢 {-compensation:0} 毫秒。当前音源直接播放，无法给它增加延迟；请改用不发声的输出作为音源，再让 PairUp 转发所有音箱后校准。原延迟已保留。");
+                return new(false, new(), $"“{measurement.Name}”比音源慢 {-compensation:0} 毫秒。当前音源直接播放，无法给它增加延迟；请改用不发声的输出作为音源，再让声屿转发所有音箱后校准。原延迟已保留。");
             if (compensation > FixedDelaySampleProvider.MaximumDelayMs)
                 return new(false, new(), $"“{measurement.Name}”需要补偿 {compensation:0} 毫秒，超过 3000 毫秒范围，原延迟已保留");
             result[measurement.DeviceId] = Math.Max(0, Math.Round(compensation, 1, MidpointRounding.AwayFromZero));

@@ -32,8 +32,14 @@ public partial class MainWindow
         var previousBaseline = _lastSourceVolume;
         var previousWarning = _deviceConnectionWarning;
         var settingsTouched = false;
+        // A device can disappear after the list was drawn. Read current availability before
+        // deciding whether the former source can become an ordinary forwarding output.
+        var liveVolumes = _uiPreview ? null : WindowsDeviceVolume.Read(snapshots.Select(snapshot => snapshot.Device.Id));
+        var availableIds = _uiPreview
+            ? snapshots.Where(snapshot => snapshot.Device.State == NAudio.CoreAudioApi.DeviceState.Active).Select(snapshot => snapshot.Device.Id).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : liveVolumes!.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var sourceVolume = _uiPreview ? new DeviceVolumeState(selected.Volume, false)
-            : WindowsDeviceVolume.Read(new[] { selected.Id }).GetValueOrDefault(selected.Id)
+            : liveVolumes!.GetValueOrDefault(selected.Id)
                 ?? throw new InvalidOperationException("暂时无法读取所选主音源的 Windows 音量，请确认设备已连接。");
 
         void Reflect(Action action)
@@ -58,8 +64,17 @@ public partial class MainWindow
             {
                 item.IsSystemDefault = string.Equals(item.Id, selected.Id, StringComparison.OrdinalIgnoreCase);
                 if (item.IsSystemDefault) item.IsConnected = false;
-                else if (string.Equals(item.Id, previousId, StringComparison.OrdinalIgnoreCase)) item.IsConnected = true;
-                if (item.IsSystemDefault || string.Equals(item.Id, previousId, StringComparison.OrdinalIgnoreCase)) item.IsOutOfRange = false;
+                else if (string.Equals(item.Id, previousId, StringComparison.OrdinalIgnoreCase))
+                    item.IsConnected = availableIds.Contains(item.Id) && !_audioEngine.IsOutputResumeSuppressed(item.Id);
+                if (item.IsSystemDefault) item.IsOutOfRange = false;
+                else if (string.Equals(item.Id, previousId, StringComparison.OrdinalIgnoreCase))
+                    item.IsOutOfRange = !availableIds.Contains(item.Id) || _audioEngine.IsOutputResumeSuppressed(item.Id);
+                else if (item.IsConnected && !availableIds.Contains(item.Id))
+                {
+                    item.IsOutOfRange = true;
+                    item.SyncStatusText = "设备未连接，已保留选择";
+                    item.SyncDetailsText = "重新连接后刷新设备即可重试。";
+                }
             }
             _viewModel.DefaultDevice = selected;
             _viewModel.SourceName = selected.Name;
@@ -110,7 +125,9 @@ public partial class MainWindow
 
         if (_uiPreview) { ApplySettings(); return; }
         var defaults = WindowsDefaultAudioDevice.Capture();
-        var outputs = snapshots.Where(snapshot => !string.Equals(snapshot.Device.Id, selected.Id, StringComparison.OrdinalIgnoreCase) &&
+        var outputs = snapshots.Where(snapshot => availableIds.Contains(snapshot.Device.Id) &&
+            !_audioEngine.IsOutputResumeSuppressed(snapshot.Device.Id) &&
+            !string.Equals(snapshot.Device.Id, selected.Id, StringComparison.OrdinalIgnoreCase) &&
             (snapshot.Settings.IsConnected || string.Equals(snapshot.Device.Id, previousId, StringComparison.OrdinalIgnoreCase)))
             .Select(snapshot => snapshot.Settings with { IsConnected = true }).ToArray();
         _audioEngine.ChangeSource(selected.Id, outputs, () => WindowsDefaultAudioDevice.Set(selected.Id),

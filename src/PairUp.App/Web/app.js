@@ -21,7 +21,7 @@
   };
   const nodes = new Map(), assignments = new Map(), spatialNodes = new Map();
   const activeEdits = new WeakSet();
-  let state = { demo: requestedDemo, sourceName: '', sourceId: '', masterVolume: 0, isSourceMuted: false, isCalibrating: false, isTesting: false, testingDeviceId: null, audioBusy: false, status: '', devices: [] };
+  let state = { demo: requestedDemo, sourceName: '', sourceId: '', masterVolume: 0, auditionVolume: 20, isSourceMuted: false, isCalibrating: false, isTesting: false, testingDeviceId: null, audioBusy: false, status: '', devices: [] };
   let received = false, hostReceived = false, page = 'play', preset = 'whole', toastTimer = 0, previousAppearanceFocus = null;
   let readyTimer = 0, readyAttempts = 0, readySent = false;
   let currentDialog = null;
@@ -69,6 +69,26 @@
       if (event.key === 'Enter' && input.type === 'number') input.blur();
     });
   }
+  function auditionPercent() {
+    for (const input of [$('#audition-volume-number'), $('#audition-volume')]) {
+      if (activeEdits.has(input) && Number.isInteger(input.valueAsNumber) && input.valueAsNumber >= 1 && input.valueAsNumber <= 100)
+        return input.valueAsNumber;
+    }
+    return state.auditionVolume;
+  }
+  function updateAuditionLabel(device, card) {
+    const button = card.querySelector('[data-device-action=test]'), percent = auditionPercent();
+    button.setAttribute('aria-label', (testing(device) ? '停止试听' : '试听') + ' · ' + device.name + ' · 试听音量 ' + percent + '%');
+    button.title = (testing(device) ? '停止试听：' : '单独试听：') + device.name + ' · 试听音量 ' + percent + '%';
+  }
+  function syncAuditionControls() {
+    const controls = [$('#audition-volume'), $('#audition-volume-number')], disabled = !canOperate() || busy();
+    if (disabled) controls.forEach(input => activeEdits.delete(input));
+    const percent = auditionPercent();
+    for (const input of controls) { setInput(input, percent); input.disabled = disabled; }
+    $('#audition-volume-warning').hidden = percent <= 50;
+    for (const device of state.devices) { const card = nodes.get(device.id); if (card) updateAuditionLabel(device, card); }
+  }
   function iconUse(element, name) { element.querySelector('use')?.setAttribute('href', '#i-' + name); }
   function notifySurfaces() { document.dispatchEvent(new CustomEvent('glasssurfacechange')); }
   function optionsFor(select, values, placeholder = false) {
@@ -113,7 +133,7 @@
   }
   function send(message) {
     if (!canOperate()) { toast('网页尚未连接声屿应用。设备操作需在程序中使用。'); render(); return false; }
-    if (busy() && ['device', 'spatial', 'spatialBatch', 'master', 'mute', 'testDevice', 'setSource', 'calibrate'].includes(message.action)) {
+    if (busy() && ['device', 'spatial', 'spatialBatch', 'master', 'mute', 'auditionVolume', 'testDevice', 'setSource', 'calibrate'].includes(message.action)) {
       toast(state.isTesting ? '正在试听，请先停止试听后再调整。' : calibrated() ? '正在进行声音校准，请等校准结束后再调整。' : '声音设备正在准备中，请稍候再调整。', true);
       render(); return false;
     }
@@ -132,6 +152,7 @@
         state.devices.filter(output => source(output) || output.isConnected).forEach(output => { output.volume = state.masterVolume; });
         break;
       case 'mute': state.isSourceMuted = Boolean(message.value); break;
+      case 'auditionVolume': state.auditionVolume = Math.round(clamp(finite(message.value, 20), 1, 100)); break;
       case 'testDevice':
         if (!device) return;
         state.isTesting = true; state.testingDeviceId = device.id; state.audioBusy = true;
@@ -189,6 +210,7 @@
       sourceName: typeof incoming.sourceName === 'string' ? incoming.sourceName : '',
       sourceId: typeof incoming.sourceId === 'string' ? incoming.sourceId : '',
       masterVolume: clamp(finite(incoming.masterVolume), 0, 100),
+      auditionVolume: Math.round(clamp(finite(incoming.auditionVolume, 20), 1, 100)),
       isSourceMuted: incoming.isSourceMuted === true,
       isCalibrating: incoming.isCalibrating === true,
       isTesting: incoming.isTesting === true,
@@ -293,8 +315,7 @@
     const testButton = card.querySelector('[data-device-action=test]');
     testButton.querySelector('span').textContent = isTesting ? '停止试听' : '试听';
     testButton.setAttribute('aria-pressed', String(isTesting));
-    testButton.setAttribute('aria-label', (isTesting ? '停止试听' : '试听') + ' · ' + device.name);
-    testButton.title = (isTesting ? '停止试听：' : '单独试听：') + device.name;
+    updateAuditionLabel(device, card);
     testButton.disabled = !canOperate() || (busy() && !isTesting);
     iconUse(testButton, isTesting ? 'stop' : 'play');
     const sourceButton = card.querySelector('[data-device-action=set-source]');
@@ -443,6 +464,7 @@
     $('#master-mute').setAttribute('aria-pressed', String(state.isSourceMuted));
     $('#master-mute').setAttribute('aria-label', state.isSourceMuted ? '取消主音源静音' : '静音主音源');
     iconUse($('#master-mute'), state.isSourceMuted ? 'mute' : 'volume');
+    syncAuditionControls();
     for (const [id, card] of nodes) if (!getDevice(id)) { card.remove(); nodes.delete(id); }
     for (const [id, card] of spatialNodes) if (!getDevice(id)) { card.remove(); spatialNodes.delete(id); }
     for (const device of state.devices) {
@@ -572,6 +594,16 @@
   $('#master-volume').addEventListener('input', event => { $('#master-value').textContent = event.target.value; setRangePaint(event.target); });
   $('#master-volume').addEventListener('change', event => send({ action: 'master', value: event.target.valueAsNumber }));
   $('#master-mute').addEventListener('click', () => send({ action: 'mute', value: !state.isSourceMuted }));
+  for (const input of [$('#audition-volume'), $('#audition-volume-number')]) {
+    trackEditing(input);
+    input.addEventListener('input', syncAuditionControls);
+    input.addEventListener('change', () => {
+      if (!Number.isInteger(input.valueAsNumber) || !input.checkValidity()) {
+        toast('试听音量请输入 1–100 之间的整数。', true); render(); return;
+      }
+      send({ action: 'auditionVolume', value: input.valueAsNumber });
+    });
+  }
   $$('[data-theme-choice]').forEach(button => button.addEventListener('click', () => { appearance.prefs.theme = button.dataset.themeChoice; applyAppearance(); }));
   $('#ambient-toggle').addEventListener('change', event => { appearance.prefs.ambient = event.target.checked; applyAppearance(); });
   $('#motion-toggle').addEventListener('change', event => { appearance.prefs.motion = event.target.checked; applyAppearance(); });

@@ -24,7 +24,8 @@ public static class AcousticProbeAnalysis
                 "电脑内部未取得清楚的参考测试音（尚不能判断音箱是否出声）：" + refMatch.Reason + "。");
         }
         if (!reference.HasContinuousProbe(refMatch.OffsetMs))
-            throw new InvalidOperationException("参考声音的时间记录不连续，无法可靠测量。原延迟已保留，请重测。");
+            throw new InvalidOperationException("电脑内部参考测试音已识别，但时间记录不够连续，无法可靠测量。原延迟已保留。\n" +
+                reference.DescribeProbeCoverage(refMatch.OffsetMs));
         var referenceTime = reference.AbsoluteMilliseconds(refMatch.OffsetMs);
         var relativeReference = referenceTime - microphone.StartQpc / 10000.0;
         var minimumMicMs = relativeReference + separationMs - 100;
@@ -34,7 +35,8 @@ public static class AcousticProbeAnalysis
             ThrowUnreliable(micMatch, microphone, minimumMicMs, maximumMicMs, "麦克风录音",
                 "电脑内部的参考测试音正常，但麦克风未清楚识别到待测音箱：" + micMatch.Reason + "。");
         if (!microphone.HasContinuousProbe(micMatch.OffsetMs))
-            throw new InvalidOperationException("测试期间麦克风录音中断，原延迟已保留，请重测");
+            throw new InvalidOperationException("麦克风已识别到测试音，但该段录音的时间记录不够连续，无法可靠校准。尚不能据此判断麦克风断开，原延迟已保留。\n" +
+                microphone.DescribeProbeCoverage(micMatch.OffsetMs));
         var arrival = microphone.AbsoluteMilliseconds(micMatch.OffsetMs) - referenceTime - separationMs;
         if (arrival < -100 || arrival > 3900)
             throw new InvalidOperationException("测试音到达时间超出可验证范围，原延迟已保留");
@@ -63,6 +65,7 @@ public static class AcousticProbeAnalysis
         var valid = 0;
         for (var i = first; i < end; i++) if (audio.Coverage[i] == 1) valid++;
         if (valid < (end - first) * 0.995)
-            throw new InvalidOperationException(captureName + "有中断或无效时间记录，不能通过提高音量重试。原延迟已保留。");
+            throw new InvalidOperationException(captureName + "的时间记录不够连续，不能通过提高音量重试。尚不能据此判断设备断开，原延迟已保留。\n" +
+                audio.DescribeCoverage(first, end - first));
     }
 }

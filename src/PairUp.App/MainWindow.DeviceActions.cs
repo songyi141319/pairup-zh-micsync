@@ -9,6 +9,7 @@ public partial class MainWindow
     private string? _testingDeviceId;
     private bool _switchingSource;
     private bool _exitAfterDevicePreview;
+    private int _auditionVolume = 20;
     private bool AudioBusy => _devicePreviewCancellation is not null || _switchingSource ||
         _acousticCalibrationWindow?.IsMeasuring == true || _audioEngine.IsCalibrating;
 
@@ -69,6 +70,7 @@ public partial class MainWindow
         using var cancellation = new CancellationTokenSource();
         _devicePreviewCancellation = cancellation;
         _testingDeviceId = device.Id;
+        var preview = new DevicePreview();
         _acousticDeviceSnapshot = _viewModel.Devices.ToDictionary(d => d.Id,
             d => new DeviceSettings(d.Id, d.IsConnected, d.Volume, d.LatencyMs, d.IsFavorite, d.BassBoost, d.Treble, d.IsMono, d.Spatial));
         try
@@ -77,8 +79,16 @@ public partial class MainWindow
             // Silence forwarding while a direct source chime is captured, so it cannot ring
             // through every connected speaker. The scope also restores delays and gates.
             using (_audioEngine.BeginAcousticCalibration())
-                await Task.Run(() => DevicePreview.PlayAsync(device.Id, cancellation.Token));
-            await GlassNoticeAsync(new { message = $"“{device.Name}”试听已结束。是否实际出声，请以听到的声音为准。" });
+            {
+                try { await Task.Run(() => preview.PlayAsync(device.Id, _auditionVolume, cancellation.Token)); }
+                finally
+                {
+                    if (preview.ResumeBlocked && _audioEngine.SuppressCalibrationResume(device.Id) is { } pauseWarning)
+                        _viewModel.StatusText = pauseWarning;
+                }
+            }
+            if (!preview.ResumeBlocked)
+                await GlassNoticeAsync(new { message = $"“{device.Name}”试听已结束。是否实际出声，请以听到的声音为准。" });
         }
         catch (OperationCanceledException) { }
         finally
@@ -90,6 +100,11 @@ public partial class MainWindow
             await SendGlassStateAsync(true);
             if (_audioEngine.CalibrationRestoreWarning is { } warning)
                 await GlassNoticeAsync(new { message = warning, error = true });
+            if (preview.RestorationWarning is { } previewWarning)
+            {
+                _viewModel.StatusText = previewWarning;
+                await GlassNoticeAsync(new { message = previewWarning, error = true });
+            }
             if (_exitAfterDevicePreview) _ = Dispatcher.BeginInvoke(new Action(Close));
         }
     }

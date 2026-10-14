@@ -10,12 +10,13 @@ public sealed record AcousticCalibrationReport(IReadOnlyList<AcousticMeasurement
 /// <summary>Measure actual source-to-speaker routing against a timestamped loopback reference.</summary>
 public sealed class AcousticCalibrator(AudioEngine engine)
 {
-    private static readonly int[] CalibrationLevels = [20, 30, 40, 50];
     public string? RestorationWarning { get; private set; }
 
     public async Task<AcousticCalibrationReport> MeasureAsync(string microphoneId, IReadOnlyList<CalibrationTarget> targets,
-        IProgress<string>? progress, CancellationToken cancellationToken)
+        IProgress<string>? progress, CancellationToken cancellationToken, CalibrationOptions? options = null)
     {
+        options ??= new CalibrationOptions();
+        var levels = options.GetLevels(DateTime.Now);
         RestorationWarning = null;
         var sourceId = engine.SourceDeviceId ?? throw new InvalidOperationException("音源尚未启动，请先打开一个输出设备");
         if (targets.Count < 2 || targets.All(t => !SameDevice(t.DeviceId, sourceId)))
@@ -35,7 +36,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            mutedMusic.Mute(sourceId);
+            foreach (var target in targets) mutedMusic.Mute(target.DeviceId);
             routing = engine.BeginAcousticCalibration();
             volumes.Capture(targets);
             microphone = new TimestampedAudioCapture(microphoneId, false);
@@ -44,11 +45,11 @@ public sealed class AcousticCalibrator(AudioEngine engine)
             await reference.StartAsync(cancellationToken);
             await Task.Delay(400, cancellationToken);
 
-            for (var attempt = 0; attempt < CalibrationLevels.Length; attempt++)
+            for (var attempt = 0; attempt < levels.Length; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var percent = CalibrationLevels[attempt];
-                volumes.ApplyLevel(percent);
+                var percent = levels[attempt];
+                volumes.ApplyLevel(percent, options.Mode == CalibrationVolumeMode.Manual);
                 progress?.Report($"主音源与选中音箱临时统一为 {percent}%。结束后恢复各自原音量和静音状态。");
                 await Task.Delay(250, cancellationToken);
                 try
@@ -62,9 +63,12 @@ public sealed class AcousticCalibrator(AudioEngine engine)
                     // a quiet snapshot; none of those conditions permits louder retries.
                     CheckForwarding();
                     volumes.EnsureReady();
-                    if (attempt + 1 == CalibrationLevels.Length)
-                        throw new InvalidOperationException("已按 20%、30%、40%、50% 尝试；50% 时仍未取得可靠的测试音，已停止自动提高音量。请人工检查音箱是否出声、麦克风选择及摆放，再重新校准。未应用新的延迟。\n" + ex.Message, ex);
-                    progress?.Report($"{percent}% 时测试音仍偏弱，将以 {CalibrationLevels[attempt + 1]}% 重新测量整组音箱。不会把不同音量下的结果混在一起。");
+                    if (attempt + 1 == levels.Length)
+                        throw new InvalidOperationException((options.Mode == CalibrationVolumeMode.Manual
+                            ? $"手动模式保持 {percent}%，未自动提高音量。"
+                            : $"已尝试 {string.Join("、", levels.Select(level => level + "%"))}，已达到本次自动音量上限。") +
+                            "仍未取得可靠测试音。请先单台试听，再检查麦克风位置。未应用新的延迟。\n" + ex.Message, ex);
+                    progress?.Report($"{percent}% 时测试音仍偏弱，将以 {levels[attempt + 1]}% 重新测量整组音箱。");
                 }
             }
             throw new InvalidOperationException("校准未产生可用测量结果。");
@@ -77,7 +81,19 @@ public sealed class AcousticCalibrator(AudioEngine engine)
             Restore(() => microphone?.Dispose(), "麦克风收音未能正常停止，请关闭校准窗口后检查。", restoreWarnings);
             Restore(volumes.Dispose, "部分原音量未能恢复，请检查 Windows 设备音量。", restoreWarnings);
             restoreWarnings.AddRange(volumes.RestoreWarnings);
+            if (restoreWarnings.Count > 0 && routing is not null)
+            {
+                mutedMusic.KeepMuted = true;
+                foreach (var target in targets)
+                    if (engine.SuppressCalibrationResume(target.DeviceId) is { } pauseWarning) restoreWarnings.Add(pauseWarning);
+                restoreWarnings.Add("恢复未完全成功，已暂停音乐恢复；请检查设备音量后手动恢复播放。");
+            }
             Restore(() => routing?.Dispose(), "原延迟或播放路由未能完全恢复，请检查播放状态。", restoreWarnings);
+            if (engine.CalibrationRestoreWarning is { } routingWarning)
+            {
+                mutedMusic.KeepMuted = true;
+                restoreWarnings.Add(routingWarning);
+            }
             Restore(mutedMusic.Dispose, "部分音乐应用的原静音状态未能恢复，请检查 Windows 音量混合器。", restoreWarnings);
             restoreWarnings.AddRange(mutedMusic.RestoreWarnings);
             RestorationWarning = restoreWarnings.Count == 0 ? null : string.Join("\n", restoreWarnings.Distinct());
@@ -232,6 +248,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         private readonly List<(AudioSessionControl Session, bool Muted)> _sessions = new();
         private readonly List<string> _restoreWarnings = new();
         public IReadOnlyList<string> RestoreWarnings => _restoreWarnings;
+        public bool KeepMuted { get; set; }
 
         public void Mute(string sourceId)
         {
@@ -258,7 +275,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         {
             foreach (var (session, muted) in _sessions)
             {
-                try { session.SimpleAudioVolume.Mute = muted; }
+                try { session.SimpleAudioVolume.Mute = KeepMuted || muted; }
                 catch
                 {
                     var expired = false;
