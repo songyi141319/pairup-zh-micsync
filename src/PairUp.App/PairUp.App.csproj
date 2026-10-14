@@ -35,7 +35,7 @@
   <ItemGroup>
     <Resource Include="app.ico" />
     <Resource Include="Assets\shengyu.png" />
-    <Content Include="Web\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Web\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
 </Project>
