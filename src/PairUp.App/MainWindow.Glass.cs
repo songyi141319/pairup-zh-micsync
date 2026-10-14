@@ -19,6 +19,7 @@ public partial class MainWindow
     private WebView2? _glass;
     private UIElement? _legacyContent;
     private Grid? _glassShell;
+    private Border? _glassLoadingStatus;
     private Button? _returnToGlass;
     private bool _glassReady;
     private bool _glassDisposed;
@@ -38,6 +39,8 @@ public partial class MainWindow
         if (_primaryInterfaceReady || _glassDisposed) return;
         _primaryInterfaceReady = true;
         _glassStartupTimer.Stop();
+        if (_glassLoadingStatus is not null) _glassLoadingStatus.Visibility = Visibility.Collapsed;
+        _glassShell?.UpdateLayout();
         PrimaryInterfaceReady?.Invoke(this, EventArgs.Empty);
     }
 
@@ -78,8 +81,11 @@ public partial class MainWindow
             Content = null;
             var root = new Grid();
             root.Children.Add(_legacyContent);
-            _glassShell = new Grid { Visibility = Visibility.Hidden };
+            // A hidden native host may suspend first-frame rendering. The page
+            // has its own loading artwork; keep its host visible from creation.
+            _glassShell = new Grid();
             _glassShell.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+            _glassShell.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _glassShell.RowDefinitions.Add(new RowDefinition());
             var caption = new Grid { Background = new SolidColorBrush(Color.FromRgb(239, 243, 247)) };
             caption.Children.Add(new TextBlock { Text = "声屿 · 多音箱音乐空间", Foreground = Brushes.Black, Margin = new Thickness(18, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, FontSize = 12 });
@@ -96,14 +102,23 @@ public partial class MainWindow
             CaptionButton("×", "收起到托盘", () => { if (_uiPreview) Close(); else WindowState = WindowState.Minimized; });
             caption.Children.Add(captionButtons);
             _glassShell.Children.Add(caption);
+            _glassLoadingStatus = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(239, 243, 247)),
+                Padding = new Thickness(18, 14, 18, 14),
+                Child = new TextBlock { Text = "正在加载界面，请稍候…", Foreground = Brushes.Black, FontSize = 14 }
+            };
+            Grid.SetRow(_glassLoadingStatus, 1);
+            _glassShell.Children.Add(_glassLoadingStatus);
             _glass = new WebView2();
-            Grid.SetRow(_glass, 1);
+            Grid.SetRow(_glass, 2);
             _glassShell.Children.Add(_glass);
             root.Children.Add(_glassShell);
             _returnToGlass = new Button { Content = "返回玻璃界面", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 45, 18, 0), Padding = new Thickness(12, 7, 12, 7), Visibility = Visibility.Collapsed };
             _returnToGlass.Click += (_, _) => ShowGlass(true);
             root.Children.Add(_returnToGlass);
             Content = root;
+            root.UpdateLayout();
             var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PairUp", _uiPreview ? "WebViewPreview" : "WebView");
             var environment = await CoreWebView2Environment.CreateAsync(null, dataDirectory);
             if (_glassDisposed || _glassUnavailable) return;

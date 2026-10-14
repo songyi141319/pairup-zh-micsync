@@ -9,9 +9,9 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+([.-][0-9A-Za-z]+)*$')]
-    [string]$Version = '0.4.0-preview.4',
+    [string]$Version = '0.4.0-preview.5',
     [ValidatePattern('^\d{1,5}\.\d{1,5}\.\d{1,5}\.\d{1,5}$')]
-    [string]$WindowsVersion = '0.4.0.4',
+    [string]$WindowsVersion = '0.4.0.5',
     [string]$BinaryPath,
     [string]$WebRoot,
     [string]$ExpectedBinarySha256,
