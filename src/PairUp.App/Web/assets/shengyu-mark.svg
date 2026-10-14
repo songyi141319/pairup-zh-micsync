@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">声屿</title>
+  <desc id="desc">三根圆头声波与一笔岛岸弧线。</desc>
+  <rect x="2" y="2" width="60" height="60" rx="18" fill="#203B50"/>
+  <g transform="translate(8 8) scale(2)" fill="none" stroke="#F0FAFA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7.5 9.5v5M12 5.5v10M16.5 9.5v5M4.5 18c4.4 2.7 10.6 2.7 15 0"/>
+  </g>
+</svg>

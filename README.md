@@ -1,20 +1,36 @@
-# PairUp 中文增强版
+# 声屿 · PairUp 中文增强版
 
-面向 Windows 的多音箱同时播放工具。本仓库保存中文界面、精细延迟调节、软件积压修复和麦克风校准功能，方便在其他电脑使用或继续开发。
+面向 Windows 的多音箱同时播放工具。本仓库保存中文界面、精细延迟调节、软件积压修复和麦克风校准功能，方便在其他电脑使用或继续开发。当前开发版新增“声屿”玻璃界面、音乐音场分工和摆放教程。
 
-**状态：可运行的开发预览版。35 项软件检查通过；新版完整三音箱校准和长时间同步尚待实测。**
+**当前开发预览：0.4.0-preview.2。包含声屿中文玻璃界面、音乐音场、可调长度的彩色波形与玻璃球。真实音箱听感、完整多音箱校准和长时间同步仍待实测。**
+
+## 当前开发版
+
+- **音乐用途优先**：全屋同播、左右立体声、音乐环绕、低音辅助；为每台已开启的转发音箱指定位置、频段与分工衰减。
+- **中文操作界面**：播放、音场、摆放指南、外观。真实设备沿用 Windows 完整名称。
+- **iOS27 主题迁移**：复用现有玻璃组件，保留三档透感、31 项玻璃参数、鼠标边缘亮光、自适应文字和可关闭的彩色氛围。
+- **Strands 波形与玻璃球**：保留 React Bits 原组件的 18 项效果参数；波形长度、高度、位置与球形尺寸单独保存，提供四种快捷样式和恢复布局。
+- **原有功能保留**：Windows 音量联动、0.1 毫秒延迟微调、麦克风校准、均衡、收藏、分享和原版界面回退。
+
+音乐环绕是普通立体声的模拟扩展，不是原生独立 5.1 或杜比全景声解码。主音源保持 Windows 原声直出，其他转发音箱可分工。说明见 [音乐音场与摆放指南](docs/SHENGYU-GUIDE.zh-CN.md)。
+
+本地开发预览的检查与截图范围见 [2026-10-14 验证记录](docs/VALIDATION-20261014.zh-CN.md)。
+
+玻璃界面需要 Microsoft Edge WebView2 显示组件；缺少时使用原版界面。发布目录里的整个 `Web` 文件夹需要和主程序一起分发。
 
 ## 下载安装（推荐）
 
-- **[下载中文 EXE 安装包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.3.6-zh.20261002-preview.2/PairUp-Chinese-Setup-0.3.6-zh.20261002-preview.2-win-x64.exe)**
-- [下载免安装完整包：程序、源码、使用说明和接续文档](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.3.6-zh.20261002-preview.2/PairUp-Chinese-win-x64-full-20261002-preview.2.zip)
-- [查看本次发布和校验文件](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.3.6-zh.20261002-preview.2)
+- **[下载声屿 EXE 安装包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.2/Shengyu-Setup-0.4.0-preview.2-win-x64.exe)**
+- [下载免安装便携包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.2/Shengyu-Portable-0.4.0-preview.2-win-x64.zip)
+- [下载完整源码包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.2/Shengyu-Source-0.4.0-preview.2.zip)
+- [查看本次发布、截图、中文教程和校验文件](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.4.0-preview.2)
+- [旧版本下载与回退](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.3.6-zh.20261002-preview.2)
 
-适用于 Windows 10 / 11 的 x64 电脑。安装包已自带运行所需的 .NET 组件，双击下载的 `PairUp-Chinese-Setup-…-win-x64.exe`，按中文向导安装，再从桌面或开始菜单打开“PairUp 中文增强版”。不需要编译源码或安装开发工具。
+适用于 Windows 10 / 11 的 x64 电脑。安装包已自带运行所需的 .NET 组件，双击下载的 `Shengyu-Setup-…-win-x64.exe`，按中文向导安装，再从桌面或开始菜单打开“声屿 · 多音箱音乐空间”。不需要编译源码或安装开发工具。
 
 安装到当前用户，可创建快捷方式，也可以从 Windows“设置 → 应用”卸载。详细步骤见 [安装与卸载说明](docs/INSTALL.zh-CN.md)。本版未进行数字签名，Windows 可能显示“未知发布者”。
 
-免安装完整包解压后双击 `PairUp.App.exe` 即可；源码在包内 `source` 文件夹。GitHub 的绿色 Code → Download ZIP 只下载源码，需要现成程序请使用上面的下载入口。
+便携包完整解压后双击 `PairUp.App.exe` 即可，请保留旁边的 `Web` 文件夹。源码包单独下载。GitHub 的绿色 Code → Download ZIP 只下载源码，需要现成程序请使用上面的下载入口。
 
 ## 底子是谁的
 
@@ -48,7 +64,7 @@
 
 配置保存在 `%APPDATA%\PairUp\settings.json`。新电脑的设备标识和声音延迟会变化，需要重新选设备和调节；旧电脑的数值只能作为参考。原版和增强版使用同一个配置位置，请只运行其中一个。
 
-**本版程序内“检查更新”仍指向原作者仓库。更新此增强版请从本仓库 Releases 下载；安装原版更新可能覆盖这些增强功能。**
+**开发预览版请使用本页下载链接更新。0.4.0 的“检查更新”已指向本增强版仓库，但自动检查可能不显示预览版；旧的 0.3.6 下载包仍可能指向上游。**
 
 ## 下次从哪里继续
 
@@ -77,4 +93,4 @@ dotnet publish .\src\PairUp.App\PairUp.App.csproj -c Release -r win-x64 --self-c
 
 ## 许可证
 
-[MIT](LICENSE)。保留原作者版权和许可声明。第三方组件的声明在 [licenses](licenses) 中。
+原项目及本仓库自有修改遵循 [MIT](LICENSE)，保留原作者版权。第三方组件分别遵循其许可证：React Bits Strands 为 **MIT + Commons Clause**，包含额外的商业销售限制，并非无附加条件的 MIT。完整声明见 [第三方声明](THIRD-PARTY-NOTICES.md) 与 [licenses](licenses)。

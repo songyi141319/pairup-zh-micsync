@@ -1,11 +1,12 @@
 using System.IO;
 using System.Text.Json;
+using PairUp.App.Audio;
 
 namespace PairUp.App.Services;
 
 public sealed record DeviceSettings(
     string DeviceId, bool IsConnected, double Volume, double LatencyMs, bool IsFavorite = false,
-    double BassBoost = 0, double Treble = 0, bool IsMono = false);
+    double BassBoost = 0, double Treble = 0, bool IsMono = false, SpatialProfile? Spatial = null);
 
 public sealed record AppSettings(double MasterVolume, List<DeviceSettings> Devices);
 
@@ -36,7 +37,7 @@ public sealed class SettingsStore
         {
             var settings = JsonSerializer.Deserialize<AppSettings>(json);
             if (settings is not null)
-                return (settings.MasterVolume, settings.Devices.ToDictionary(s => s.DeviceId, StringComparer.OrdinalIgnoreCase));
+                return (settings.MasterVolume, settings.Devices.Select(RestoreSpatial).ToDictionary(s => s.DeviceId, StringComparer.OrdinalIgnoreCase));
         }
         catch (JsonException)
         {
@@ -46,7 +47,7 @@ public sealed class SettingsStore
             {
                 var legacy = JsonSerializer.Deserialize<List<DeviceSettings>>(json);
                 if (legacy is not null)
-                    return (100, legacy.ToDictionary(s => s.DeviceId, StringComparer.OrdinalIgnoreCase));
+                    return (100, legacy.Select(RestoreSpatial).ToDictionary(s => s.DeviceId, StringComparer.OrdinalIgnoreCase));
             }
             catch (JsonException) { }
         }
@@ -56,10 +57,12 @@ public sealed class SettingsStore
 
     public void Save(double masterVolume, IEnumerable<DeviceSettings> devices)
     {
+        var savedDevices = devices.ToList();
+        foreach (var device in savedDevices) device.Spatial?.Validate();
         var directory = Path.GetDirectoryName(FilePath)!;
         Directory.CreateDirectory(directory);
 
-        var settings = new AppSettings(masterVolume, devices.ToList());
+        var settings = new AppSettings(masterVolume, savedDevices);
         var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
         var temporary = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
@@ -69,4 +72,8 @@ public sealed class SettingsStore
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
+
+    // Corrupt/newer spatial settings must not erase old device volume, delay or favorites.
+    private static DeviceSettings RestoreSpatial(DeviceSettings device) =>
+        device.Spatial is { } spatial && !spatial.TryValidate(out _) ? device with { Spatial = null } : device;
 }

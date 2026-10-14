@@ -1,0 +1,236 @@
+/* Adapted from the supplied workbench glass-customization.css. Material and text
+   remain separate; only the surface backing changes opacity. */ :root{
+  --diy-panel-alpha:.7;
+  --diy-sidebar-alpha:.76;
+  --diy-popover-alpha:.82;
+  --diy-chrome-alpha:.68;
+  --diy-panel-blur:20px;
+  --diy-popover-blur:28px;
+  --diy-chrome-blur:3px;
+  --diy-saturation:1.25;
+  --diy-panel-radius:32px;
+  --diy-sidebar-radius:26px;
+  --diy-popover-radius:28px
+}
+.panel{
+  background:rgb(var(--glass-base)/var(--diy-panel-alpha));
+  backdrop-filter:blur(var(--diy-panel-blur)) saturate(115%)
+}
+.card{
+  background:rgb(var(--glass-base)/var(--diy-sidebar-alpha));
+  backdrop-filter:blur(var(--diy-panel-blur)) saturate(115%)
+}
+.glass{
+  background:rgb(var(--glass-base)/var(--diy-chrome-alpha));
+  backdrop-filter:blur(var(--diy-chrome-blur)) saturate(var(--diy-saturation))
+}
+.appearance-popover{
+  background:rgb(var(--glass-base)/var(--diy-popover-alpha));
+  backdrop-filter:blur(var(--diy-popover-blur)) saturate(var(--diy-saturation))
+}
+.glass[data-liquid-glass]{
+  background:transparent;
+  backdrop-filter:none
+}
+.glass[data-liquid-glass]>.lg-material{
+  border-radius:inherit;
+  overflow:hidden
+}
+.glass[data-liquid-glass]>.lg-material>div{
+  border-radius:inherit!important
+}
+.glass-pointer-rim{
+  position:absolute!important;
+  inset:0;
+  z-index:3!important;
+  border-radius:inherit;
+  padding:var(--pointer-thickness,1.5px);
+  pointer-events:none;
+  opacity:var(--pointer-gain,0);
+  background:radial-gradient(circle var(--pointer-halo,140px) at var(--pointer-x,50%) var(--pointer-y,50%),rgba(255,255,255,.98),rgba(235,249,255,.72) 20%,rgba(151,214,244,.24) 48%,transparent 74%);
+  mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor
+}
+[data-contrast-tone]{
+  --ink:var(--adaptive-ink);
+  --muted:var(--adaptive-secondary);
+  --faint:var(--adaptive-tertiary);
+  --text:var(--adaptive-ink);
+  --text-2:var(--adaptive-secondary);
+  --text-3:var(--adaptive-tertiary);
+  --focus:var(--adaptive-accent);
+  --accent:var(--adaptive-accent);
+  color:var(--adaptive-ink)
+}
+[data-contrast-tone]:not([data-liquid-glass]){
+  background-image:linear-gradient(var(--adaptive-backing),var(--adaptive-backing))
+}
+[data-contrast-tone]>[data-liquid-glass-layer=material]::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:1;
+  border-radius:inherit;
+  pointer-events:none;
+  background:var(--adaptive-backing)
+}
+[data-contrast-tone],[data-contrast-tone] *{
+  text-shadow:none;
+  -webkit-text-stroke-width:0
+}
+.diy-group{
+  margin:0 0 23px
+}
+.diy-group h4{
+  font-size:12px;
+  font-weight:620;
+  margin:0 0 12px
+}
+.glass-clarity-choices{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:4px;
+  padding:4px;
+  border-radius:13px;
+  background:color-mix(in srgb,currentColor 7%,transparent)
+}
+.glass-clarity-choices button{
+  min-height:37px;
+  padding:8px;
+  border:0;
+  border-radius:10px;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  font-size:12px;
+  cursor:pointer
+}
+.glass-clarity-choices button[aria-pressed=true]{
+  background:rgb(var(--glass-base));
+  color:var(--adaptive-ink,var(--ink));
+  box-shadow:0 1px 4px #0001
+}
+.glass-clarity .diy-note{
+  margin:10px 0 0
+}
+.diy-control{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 66px;
+  align-items:center;
+  column-gap:14px;
+  row-gap:4px;
+  margin:0 0 10px
+}
+.diy-control label{
+  font-size:11px;
+  font-weight:500;
+  line-height:1.6
+}
+.diy-control output{
+  font-size:11px;
+  font-variant-numeric:tabular-nums;
+  text-align:right;
+  color:var(--muted)
+}
+.diy-control input[type=range]{
+  width:100%;
+  min-height:34px;
+  margin:0;
+  padding:0;
+  cursor:pointer
+}
+.diy-control input[type=number]{
+  width:66px;
+  min-width:0;
+  min-height:32px;
+  padding:4px 6px;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:rgb(var(--glass-base)/.65);
+  color:inherit;
+  font:inherit;
+  font-size:11px;
+  text-align:center;
+  font-variant-numeric:tabular-nums
+}
+.diy-note{
+  font-size:11px;
+  line-height:1.8;
+  margin:0 0 16px;
+  color:var(--muted)
+}
+.diy-advanced summary{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  min-height:42px;
+  font-size:11px;
+  font-weight:600;
+  cursor:pointer;
+  list-style:none
+}
+.diy-advanced summary::-webkit-details-marker{
+  display:none
+}
+.diy-advanced summary::after{
+  content:'›';
+  font-size:21px;
+  transform:rotate(0)
+}
+.diy-advanced[open] summary::after{
+  transform:rotate(90deg)
+}
+.diy-advanced[open] summary{
+  margin-bottom:10px
+}
+.diy-actions{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin:8px 0 5px
+}
+.diy-actions button{
+  min-height:36px;
+  padding:8px;
+  border:0;
+  border-radius:11px;
+  background:rgb(var(--glass-base));
+  color:var(--ink);
+  font:inherit;
+  font-size:11px;
+  cursor:pointer
+}
+:root[data-motion-active=off] .glass-pointer-rim,:root[data-motion-active=reduced] .glass-pointer-rim,:root[data-transparency=reduce] .glass-pointer-rim{
+  display:none
+}
+:root[data-transparency=reduce] :is(.panel,.card,.glass){
+  background:rgb(var(--glass-base))!important;
+  backdrop-filter:none!important
+}
+@media(prefers-reduced-motion:reduce),(prefers-reduced-transparency:reduce),(prefers-contrast:more),(forced-colors:active){
+  .glass-pointer-rim{
+    display:none!important
+  }
+}
+@media(forced-colors:active){
+  [data-contrast-tone],[data-contrast-tone] *{
+    --ink:CanvasText;
+    --muted:CanvasText;
+    --faint:CanvasText;
+    --text:CanvasText;
+    --accent:LinkText;
+    --focus:Highlight;
+    color:CanvasText;
+    text-shadow:none
+  }
+  .glass-clarity-choices button[aria-pressed=true]{
+    background:Highlight;
+    color:HighlightText
+  }
+  .diy-control input[type=number],.diy-actions button{
+    background:Canvas;
+    color:CanvasText;
+    border:1px solid CanvasText
+  }
+}

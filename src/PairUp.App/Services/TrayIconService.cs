@@ -40,7 +40,7 @@ public sealed class TrayIconService : IDisposable
         _icon = new Forms.NotifyIcon
         {
             Icon = icon,
-            Text = "PairUp",
+            Text = "声屿",
             Visible = false,
             ContextMenuStrip = new Forms.ContextMenuStrip()
         };
@@ -79,7 +79,7 @@ public sealed class TrayIconService : IDisposable
 
         menu.Items.Add(new Forms.ToolStripSeparator());
 
-        var openItem = new Forms.ToolStripMenuItem("打开 PairUp");
+        var openItem = new Forms.ToolStripMenuItem("打开声屿");
         openItem.Click += (_, _) => showWindow();
         menu.Items.Add(openItem);
 

@@ -1,0 +1,13 @@
+{
+  "name": "shengyu-strands-build",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fixed local build of React Bits Strands for Shengyu. No CDN runtime dependencies.",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": {
+    "ogl": "1.0.11",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": { "esbuild": "0.25.11" }
+}

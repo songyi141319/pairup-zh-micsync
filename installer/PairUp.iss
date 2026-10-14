@@ -1,12 +1,15 @@
-﻿#define MyAppName "PairUp 中文增强版"
+#define MyAppName "声屿 · 多音箱音乐空间"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.6-zh.20261002-preview.2"
+  #define MyAppVersion "0.4.0-preview.2"
 #endif
 #ifndef WindowsVersion
-  #define WindowsVersion "0.3.6.2"
+  #define WindowsVersion "0.4.0.2"
 #endif
 #ifndef AppBinary
   #define AppBinary "..\publish\PairUp.App.exe"
+#endif
+#ifndef AppWebRoot
+  #define AppWebRoot "..\publish\Web"
 #endif
 #define MyAppPublisher "songyi141319；原作 Jamim Mehdi"
 #define MyAppURL "https://github.com/songyi141319/pairup-zh-micsync"
@@ -28,7 +31,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=Output
-OutputBaseFilename=PairUp-Chinese-Setup-{#MyAppVersion}-win-x64
+OutputBaseFilename=Shengyu-Setup-{#MyAppVersion}-win-x64
 SetupIconFile=..\src\PairUp.App\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/max
@@ -57,6 +60,7 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 Source: "{#AppBinary}"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: ignoreversion
+Source: "{#AppWebRoot}\*"; DestDir: "{app}\Web"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CREDITS.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -70,4 +74,4 @@ Name: "{autoprograms}\{#MyAppName}\使用说明"; Filename: "{app}\使用说明.
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "立即打开 PairUp 中文增强版"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\{#MyAppExeName}"; Description: "立即打开声屿"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent unchecked

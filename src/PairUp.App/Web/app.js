@@ -1,0 +1,533 @@
+/* Shengyu's offline view. The host is the authority for all real audio state. */
+(() => {
+  'use strict';
+  const $ = selector => document.querySelector(selector);
+  const $$ = selector => Array.from(document.querySelectorAll(selector));
+  const root = document.documentElement;
+  const getBridge = () => typeof window.chrome?.webview?.postMessage === 'function' ? window.chrome.webview : null;
+  const appearance = window.ShengyuAppearance;
+  const requestedDemo = appearance.preview;
+  const roles = [
+    ['FullRange', '完整音乐'], ['FrontLeft', '前方左声道'], ['FrontRight', '前方右声道'],
+    ['Center', '前方共同内容'], ['SurroundLeft', '左侧后环绕'],
+    ['SurroundRight', '右侧后环绕'], ['Bass', '低音辅助']
+  ];
+  const roleNames = Object.fromEntries(roles);
+  const presetInfo = {
+    whole: { title: '全屋同播', description: '每只参与的音箱播放完整音乐，不划分声道或频段。', roles: ['FullRange'] },
+    stereo: { title: '左右立体声', description: '请明确指定前方左、右音箱，两边各至少选择一只。', roles: ['FrontLeft', 'FrontRight'] },
+    surround: { title: '音乐环绕', description: '请分别指定前方或侧后角色。环绕以较轻的声音加入，保留前方的主体。', roles: ['FrontLeft', 'FrontRight', 'Center', 'SurroundLeft', 'SurroundRight', 'FullRange'] },
+    bass: { title: '低音辅助', description: '仅选择你已确认具备低频能力的音箱。先以 100 赫兹为高频截止起点，再按实际听感微调。', roles: ['Bass'] }
+  };
+  const nodes = new Map(), assignments = new Map(), spatialNodes = new Map();
+  const activeEdits = new WeakSet();
+  let state = { demo: requestedDemo, sourceName: '', sourceId: '', masterVolume: 0, isSourceMuted: false, status: '', devices: [] };
+  let received = false, hostReceived = false, page = 'play', preset = 'whole', toastTimer = 0, previousAppearanceFocus = null;
+  let readyTimer = 0, readyAttempts = 0, readySent = false;
+  let currentDialog = null;
+  const initialSpatial = () => ({ role: 'FullRange', lowCutHz: 0, highCutHz: 0, trimDb: 0 });
+  const finite = (value, fallback = 0) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const canOperate = () => Boolean(getBridge() && received) || (!hostReceived && requestedDemo);
+  const source = device => device.isSystemDefault || (state.sourceId && device.id === state.sourceId);
+  const calibrated = () => Boolean(state.isCalibrating);
+  const getDevice = id => state.devices.find(device => device.id === id);
+  const sourceProfile = profile => ({
+    role: roleNames[profile?.role] ? profile.role : 'FullRange',
+    lowCutHz: finite(profile?.lowCutHz), highCutHz: finite(profile?.highCutHz), trimDb: finite(profile?.trimDb)
+  });
+
+  function toast(message, error = false) {
+    clearTimeout(toastTimer);
+    const element = $('#toast');
+    element.textContent = String(message);
+    element.dataset.error = String(error);
+    element.hidden = false;
+    toastTimer = setTimeout(() => { element.hidden = true; }, error ? 9000 : 5500);
+  }
+  function setRangePaint(input) {
+    const min = Number(input.min), max = Number(input.max), value = Number(input.value);
+    input.style.setProperty('--range-progress', (max > min ? clamp((value - min) / (max - min) * 100, 0, 100) : 0) + '%');
+  }
+  function setInput(input, value) {
+    // Checkboxes always reflect host acknowledgement, including rejected starts.
+    // A focused slider is protected only during an actual unfinished edit/drag.
+    if (input.type === 'checkbox') input.checked = Boolean(value);
+    else if (!activeEdits.has(input)) input.value = String(value);
+    if (input.type === 'range') setRangePaint(input);
+  }
+  function trackEditing(input) {
+    if (!['range', 'number'].includes(input.type)) return;
+    input.addEventListener('input', () => activeEdits.add(input));
+    input.addEventListener('change', () => activeEdits.delete(input));
+    input.addEventListener('blur', () => { activeEdits.delete(input); render(); });
+    input.addEventListener('pointercancel', () => { activeEdits.delete(input); render(); });
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Escape') { activeEdits.delete(input); render(); input.blur(); }
+      if (event.key === 'Enter' && input.type === 'number') input.blur();
+    });
+  }
+  function iconUse(element, name) { element.querySelector('use')?.setAttribute('href', '#i-' + name); }
+  function notifySurfaces() { document.dispatchEvent(new CustomEvent('glasssurfacechange')); }
+  function optionsFor(select, values, placeholder = false) {
+    const old = select.value;
+    select.replaceChildren();
+    if (placeholder) { const option = document.createElement('option'); option.value = ''; option.textContent = '请选择位置'; select.append(option); }
+    for (const value of values) { const option = document.createElement('option'); option.value = value; option.textContent = roleNames[value]; select.append(option); }
+    if (values.includes(old)) select.value = old;
+  }
+  function openDialog(title) {
+    currentDialog?.close();
+    closeAppearance();
+    currentDialog = window.ShengyuGlassPopover.open({ document, title, onClose: () => { currentDialog = null; notifySurfaces(); } });
+    return currentDialog;
+  }
+  function addParagraph(parent, text, className) {
+    const paragraph = document.createElement('p'); paragraph.textContent = text;
+    if (className) paragraph.className = className;
+    parent.append(paragraph); return paragraph;
+  }
+  function showDeviceName(element, name) {
+    // Never substitute aliases or shorten a host-provided endpoint name.
+    element.textContent = name;
+    element.title = name;
+  }
+  function showGuestPicker() {
+    if (!canOperate()) { toast('这个网页尚未连接声屿应用，不能打开真实访客分享。'); return; }
+    const modal = openDialog('选择访客分享的音箱');
+    addParagraph(modal.body, '选择一个设备，打开它的访客分享入口。界面演示仅展示示例说明。');
+    const select = document.createElement('select'); select.setAttribute('aria-label', '访客分享设备');
+    for (const device of state.devices) {
+      const option = document.createElement('option'); option.value = device.id; option.textContent = device.name; option.title = device.name; select.append(option);
+    }
+    modal.body.append(select);
+    const selectedName = addParagraph(modal.body, '', 'guest-selected-name');
+    const showSelection = () => showDeviceName(selectedName, getDevice(select.value)?.name || '尚未选择设备');
+    select.addEventListener('change', showSelection); showSelection();
+    const action = document.createElement('button'); action.type = 'button'; action.className = 'primary-button'; action.textContent = '打开访客分享';
+    action.disabled = !state.devices.length;
+    action.addEventListener('click', () => { const id = select.value; modal.close(); send({ action: 'guest', id }); });
+    modal.body.append(action);
+  }
+  function send(message) {
+    if (!canOperate()) { toast('网页尚未连接声屿应用。设备操作需在程序中使用。'); render(); return false; }
+    if (calibrated() && ['device', 'spatial', 'spatialBatch', 'master', 'mute'].includes(message.action)) {
+      toast('正在进行声音校准，请等校准结束后再调整。', true); render(); return false;
+    }
+    // Native --ui-preview owns its own isolated demonstration state. Exercise the
+    // real allowlisted bridge there; only a standalone browser simulates locally.
+    const bridge = getBridge();
+    if (!bridge && !hostReceived && requestedDemo) { simulate(message); return true; }
+    try { bridge.postMessage(message); return true; }
+    catch (_) { toast('请求未能送达应用，请重新打开界面。', true); render(); return false; }
+  }
+  function simulate(message) {
+    const device = getDevice(message.id);
+    switch (message.action) {
+      case 'master':
+        state.masterVolume = clamp(message.value, 0, 100);
+        state.devices.filter(output => source(output) || output.isConnected).forEach(output => { output.volume = state.masterVolume; });
+        break;
+      case 'mute': state.isSourceMuted = Boolean(message.value); break;
+      case 'device':
+        if (!device) return;
+        if (source(device) && message.field !== 'volume' && message.field !== 'isFavorite') { toast('主音源直接由 Windows 播放，不能在转发链中处理。', true); return; }
+        device[message.field] = message.value;
+        if (message.field === 'volume' && source(device)) state.masterVolume = message.value;
+        break;
+      case 'spatial': if (device && !source(device)) device.spatial = sourceProfile(message); break;
+      case 'spatialBatch':
+        for (const item of message.items) {
+          const output = getDevice(item.id);
+          if (output && output.isConnected && !source(output)) output.spatial = sourceProfile(item);
+        }
+        toast('演示：已应用到所选音箱，真实设备未被操作。'); break;
+      case 'guest': {
+        const modal = openDialog('访客分享 · 界面演示');
+        addParagraph(modal.body, '已选择：' + (device?.name || '示例音箱'));
+        addParagraph(modal.body, '真实程序会在这里提供访客访问地址、验证码与二维码。本次演示没有启动分享服务。'); return;
+      }
+      case 'calibrate': {
+        const modal = openDialog('声音校准 · 界面演示');
+        addParagraph(modal.body, '实际校准会使用麦克风测量各音箱的到达时间，再补偿延迟。请先摆好设备，在真实程序的校准窗口中按提示开始。');
+        addParagraph(modal.body, '本次演示没有播放声音、录音或修改设备延迟。'); return;
+      }
+      case 'refresh': toast('演示设备已刷新。没有枚举或连接真实音箱。'); break;
+      case 'update': toast('界面演示不会检查或安装更新。'); return;
+      case 'legacy': toast('界面演示没有原生窗口；实际程序可返回原版界面。'); return;
+      case 'close': case 'exit': case 'minimize': case 'maximize': toast('界面演示不会控制应用窗口。'); return;
+      default: return;
+    }
+    render();
+  }
+
+  function receive(incoming, fromHost = true) {
+    if (!incoming || typeof incoming !== 'object' || !Array.isArray(incoming.devices)) return;
+    if (fromHost) hostReceived = true;
+    received = true;
+    state = {
+      demo: requestedDemo || incoming.demo === true,
+      sourceName: typeof incoming.sourceName === 'string' ? incoming.sourceName : '',
+      sourceId: typeof incoming.sourceId === 'string' ? incoming.sourceId : '',
+      masterVolume: clamp(finite(incoming.masterVolume), 0, 100),
+      isSourceMuted: incoming.isSourceMuted === true,
+      isCalibrating: incoming.isCalibrating === true,
+      status: typeof incoming.status === 'string' ? incoming.status : '',
+      devices: incoming.devices.filter(device => device && typeof device.id === 'string').map(device => ({
+        id: device.id, name: String(device.name || '未命名音箱'), kind: String(device.kind || '音频输出'),
+        isConnected: device.isConnected === true, isSystemDefault: device.isSystemDefault === true,
+        volume: clamp(finite(device.volume), 0, 100), latencyMs: clamp(finite(device.latencyMs), 0, 3000),
+        bassBoost: clamp(finite(device.bassBoost), -12, 12), treble: clamp(finite(device.treble), -12, 12),
+        isMono: device.isMono === true, isFavorite: device.isFavorite === true,
+        syncStatusText: String(device.syncStatusText || ''), syncDetailsText: String(device.syncDetailsText || ''),
+        spatial: sourceProfile(device.spatial)
+      }))
+    };
+    render();
+  }
+  function makeDevice(device) {
+    const card = $('#device-template').content.firstElementChild.cloneNode(true);
+    card.dataset.deviceId = device.id;
+    const volume = card.querySelector('[data-field=volume]');
+    const delay = card.querySelector('[data-field=latencyMs]');
+    const delayLabel = card.querySelector('.delay-control>label');
+    const identifier = 'device-delay-' + (nodes.size + 1) + '-' + Math.random().toString(36).slice(2, 7);
+    delay.id = identifier; delayLabel.htmlFor = identifier;
+    volume.setAttribute('aria-label', device.name + '音量');
+    card.querySelector('[data-field=isConnected]').setAttribute('aria-label', '开启' + device.name + '转发');
+    for (const input of card.querySelectorAll('[data-field]')) {
+      trackEditing(input);
+      const field = input.dataset.field;
+      if (field === 'bassBoost' || field === 'treble') input.setAttribute('aria-label', device.name + (field === 'bassBoost' ? '低音增益' : '高音增益'));
+      if (field === 'isMono') input.setAttribute('aria-label', device.name + '合并为单声道');
+      input.addEventListener('input', () => {
+        if (input.type === 'range') {
+          setRangePaint(input);
+          const output = input.closest('.volume-control,.eq-field').querySelector('output');
+          output.textContent = input.value + (field === 'volume' ? '%' : ' dB');
+        }
+      });
+      input.addEventListener('change', () => {
+        const value = input.type === 'checkbox' ? input.checked : input.valueAsNumber;
+        if (typeof value === 'number' && (!Number.isFinite(value) || !input.checkValidity())) {
+          toast('请输入允许范围内的数值。延迟可精确到 0.1 毫秒。', true); input.reportValidity(); return;
+        }
+        send({ action: 'device', id: device.id, field, value });
+      });
+    }
+    card.querySelector('.favorite-button').addEventListener('click', () => {
+      const current = getDevice(device.id);
+      if (current) send({ action: 'device', id: device.id, field: 'isFavorite', value: !current.isFavorite });
+    });
+    card.querySelectorAll('[data-step]').forEach(button => button.addEventListener('click', () => {
+      const current = getDevice(device.id); if (!current || source(current)) return;
+      const value = Math.round(clamp(finite(Number(delay.value), current.latencyMs) + Number(button.dataset.step), 0, 3000) * 10) / 10;
+      delay.value = value.toFixed(1);
+      send({ action: 'device', id: device.id, field: 'latencyMs', value });
+    }));
+    const eqButton = card.querySelector('.eq-button'), eq = card.querySelector('.eq-controls');
+    eqButton.addEventListener('click', () => {
+      eq.hidden = !eq.hidden; eqButton.setAttribute('aria-expanded', String(!eq.hidden)); notifySurfaces();
+    });
+    $('#device-list').append(card); nodes.set(device.id, card); return card;
+  }
+  function updateDevice(device, card) {
+    const isSource = source(device), disabled = !canOperate() || calibrated();
+    card.dataset.connected = String(device.isConnected || isSource); card.dataset.source = String(isSource);
+    showDeviceName(card.querySelector('.device-name'), device.name);
+    card.querySelector('.source-chip').hidden = !isSource;
+    card.querySelector('.device-subtitle').textContent = isSource ? 'Windows 主音源 · 原声直出' : device.kind + ' · ' + (device.isConnected ? '转发已开启' : '转发未开启');
+    iconUse(card.querySelector('.device-icon'), isSource ? 'monitor' : 'speaker');
+    const favorite = card.querySelector('.favorite-button'); favorite.setAttribute('aria-pressed', String(device.isFavorite));
+    favorite.setAttribute('aria-label', (device.isFavorite ? '取消收藏' : '收藏') + device.name); favorite.disabled = disabled;
+    card.querySelector('.device-connection').hidden = isSource;
+    for (const input of card.querySelectorAll('[data-field]')) {
+      const field = input.dataset.field;
+      input.setAttribute('aria-label', device.name + ' · ' + ({ isConnected: '开启转发', volume: '音量', latencyMs: '延迟，毫秒', bassBoost: '低音增益', treble: '高音增益', isMono: '合并为单声道' }[field] || field));
+      setInput(input, field === 'latencyMs' ? device[field].toFixed(1) : device[field]);
+      input.disabled = disabled || (isSource && field !== 'volume');
+      if (input.type === 'range') {
+        const output = input.closest('.volume-control,.eq-field').querySelector('output');
+        output.textContent = input.value + (field === 'volume' ? '%' : ' dB');
+      }
+    }
+    card.querySelectorAll('[data-step]').forEach(button => { button.disabled = disabled || isSource; });
+    card.querySelector('.delay-control').hidden = isSource;
+    card.querySelector('.device-controls').style.gridTemplateColumns = isSource ? '1fr' : '';
+    card.querySelector('.eq-button').disabled = disabled || isSource;
+    if (isSource) card.querySelector('.eq-controls').hidden = true;
+    const sync = card.querySelector('.device-sync');
+    sync.textContent = isSource ? '原声由 Windows 直接播放' : device.syncStatusText || (device.isConnected ? '建议先完成声音同步' : '开启转发后加入播放');
+    sync.title = device.syncDetailsText;
+  }
+  function makeAssignment(device) {
+    const row = $('#preset-device-template').content.firstElementChild.cloneNode(true);
+    row.dataset.deviceId = device.id;
+    const check = row.querySelector('input'), position = row.querySelector('.preset-position select'), capability = row.querySelector('.preset-capability select');
+    const assignment = { row, check, position, capability };
+    const info = presetInfo[preset]; optionsFor(position, info.roles, info.roles.length > 1);
+    [check, position, capability].forEach(input => input.addEventListener('change', updatePresetHint));
+    $('#preset-devices').append(row); assignments.set(device.id, assignment); return assignment;
+  }
+  function updateAssignments() {
+    const eligible = state.devices.filter(device => !source(device));
+    for (const [id, assignment] of assignments) if (!eligible.some(device => device.id === id)) { assignment.row.remove(); assignments.delete(id); }
+    for (const device of eligible) {
+      const assignment = assignments.get(device.id) || makeAssignment(device);
+      showDeviceName(assignment.row.querySelector('.preset-device-name'), device.name);
+      assignment.row.querySelector('.preset-device-state').textContent = device.isConnected ? '转发已开启' : '请先在播放页开启转发';
+      const disabled = !device.isConnected || !canOperate() || calibrated();
+      assignment.row.setAttribute('aria-disabled', String(disabled));
+      assignment.check.disabled = disabled;
+      if (disabled) assignment.check.checked = false;
+      assignment.position.disabled = disabled;
+      assignment.capability.disabled = disabled;
+      assignment.check.setAttribute('aria-label', '选择' + device.name + '参与预设');
+      assignment.position.setAttribute('aria-label', device.name + '的声音角色');
+      assignment.capability.setAttribute('aria-label', device.name + '的设备能力');
+    }
+    let note = $('#preset-source-note');
+    if (!note) { note = document.createElement('p'); note.id = 'preset-source-note'; note.className = 'preset-source-note'; $('#preset-devices').prepend(note); }
+    note.textContent = state.sourceName ? '主音源「' + state.sourceName + '」保持原声直出，不参与分工。' : '主音源保持原声直出，不参与分工。';
+    note.title = state.sourceName;
+    if (!eligible.length) note.textContent += '连接其他音箱后，可以在这里安排声音角色。';
+    updatePresetHint();
+  }
+  function presetValidation() {
+    const chosen = Array.from(assignments.entries()).filter(([, assignment]) => assignment.check.checked && !assignment.check.disabled);
+    if (!chosen.length) return { error: '请勾选已开启转发的音箱。', chosen };
+    if (chosen.some(([, assignment]) => !assignment.position.value)) return { error: '请为每只所选音箱指定位置。', chosen };
+    if (chosen.some(([, assignment]) => assignment.capability.value === 'unknown')) return { error: '请确认每只所选音箱的能力，声屿不会根据型号猜测。', chosen };
+    if (preset === 'stereo') {
+      const selectedRoles = chosen.map(([, assignment]) => assignment.position.value);
+      if (!selectedRoles.includes('FrontLeft') || !selectedRoles.includes('FrontRight')) return { error: '左右立体声需要至少一只左音箱和一只右音箱。', chosen };
+    }
+    if (preset === 'bass' && chosen.some(([, assignment]) => assignment.capability.value !== 'bass')) return { error: '低音辅助只适用于已确认具有低频能力的音箱。', chosen };
+    if (preset === 'surround' && !chosen.some(([, assignment]) => ['SurroundLeft', 'SurroundRight'].includes(assignment.position.value))) return { error: '音乐环绕请至少指定一只侧后环绕音箱。', chosen };
+    return { chosen };
+  }
+  function updatePresetHint() {
+    const validation = presetValidation();
+    const count = validation.chosen.length;
+    $('#preset-hint').textContent = validation.error || ('将更新 ' + count + ' 只音箱的分工。音量、开关与延迟保持原值。');
+    $('#apply-preset').disabled = Boolean(validation.error) || !canOperate() || calibrated();
+  }
+  function selectPreset(value) {
+    if (!presetInfo[value]) return;
+    preset = value;
+    for (const button of $$('[data-preset]')) {
+      const selected = button.dataset.preset === value;
+      button.setAttribute('aria-pressed', String(selected)); button.classList.toggle('selected', selected);
+    }
+    $('#preset-title').textContent = presetInfo[value].title;
+    $('#preset-description').textContent = presetInfo[value].description;
+    for (const assignment of assignments.values()) {
+      const available = presetInfo[value].roles;
+      optionsFor(assignment.position, available, available.length > 1);
+      // A new listening use must be reviewed explicitly, even if a role overlaps.
+      assignment.check.checked = false;
+      assignment.position.value = available.length === 1 ? available[0] : '';
+    }
+    updatePresetHint(); notifySurfaces();
+  }
+  function applyPreset() {
+    const validation = presetValidation(); if (validation.error) { toast(validation.error, true); return; }
+    const items = validation.chosen.map(([id, assignment]) => {
+      const role = assignment.position.value, rear = role.startsWith('Surround');
+      return { id, role, lowCutHz: (preset === 'surround' && assignment.capability.value === 'small') ? 100 : 0,
+        highCutHz: preset === 'bass' ? 100 : 0, trimDb: rear ? -6 : preset === 'bass' ? -3 : 0 };
+    });
+    send({ action: 'spatialBatch', items });
+  }
+  function makeSpatial(device) {
+    const card = $('#spatial-template').content.firstElementChild.cloneNode(true);
+    card.dataset.deviceId = device.id;
+    optionsFor(card.querySelector('[data-spatial=role]'), roles.map(([role]) => role));
+    card.querySelector('.apply-spatial').addEventListener('click', () => {
+      const current = getDevice(device.id); if (!current || source(current)) return;
+      const controls = Array.from(card.querySelectorAll('[data-spatial]'));
+      const failed = controls.find(input => !input.checkValidity() || (input.type === 'number' && !Number.isFinite(input.valueAsNumber)));
+      if (failed) { failed.reportValidity(); toast('请检查声音分工的数值范围。', true); return; }
+      const profile = Object.fromEntries(controls.map(input => [input.dataset.spatial, input.type === 'number' ? input.valueAsNumber : input.value]));
+      if (profile.lowCutHz && profile.highCutHz && profile.lowCutHz >= profile.highCutHz) { toast('低频截止需要小于高频截止，或填 0 表示不限。', true); return; }
+      if (send({ action: 'spatial', id: device.id, ...profile })) {
+        card.dataset.dirty = 'false';
+        if (requestedDemo && !hostReceived && !getBridge()) toast('演示：已应用声音分工。没有修改真实设备。');
+        else toast('分工请求已发送，应用将返回实际设置。');
+      }
+    });
+    card.querySelectorAll('[data-spatial]').forEach(input => input.addEventListener('input', () => { card.dataset.dirty = 'true'; }));
+    $('#spatial-devices').append(card); spatialNodes.set(device.id, card); return card;
+  }
+  function updateSpatial(device, card) {
+    const isSource = source(device), disabled = isSource || !canOperate() || calibrated();
+    card.dataset.source = String(isSource);
+    showDeviceName(card.querySelector('h3'), device.name);
+    card.querySelector('.spatial-heading .caption').textContent = isSource ? '主音源 · 原声直出' : device.kind + ' · ' + roleNames[device.spatial.role];
+    const controls = Array.from(card.querySelectorAll('[data-spatial]'));
+    if (card.dataset.dirty !== 'true' && !card.contains(document.activeElement)) {
+      for (const input of controls) setInput(input, device.spatial[input.dataset.spatial]);
+    }
+    controls.forEach(input => { input.disabled = disabled; input.setAttribute('aria-label', device.name + ' ' + (input.closest('label').querySelector('span')?.textContent || input.dataset.spatial)); });
+    card.querySelector('.apply-spatial').disabled = disabled;
+    card.querySelector('.spatial-notice').textContent = isSource
+      ? '这路声音由 Windows 直接播放，无法在声屿的转发处理中改变声音角色、频段或衰减。'
+      : '赫兹（Hz）表示频率；分贝（dB）表示声音增减。数值只是起点，实际音色请试听确认。';
+  }
+  function render() {
+    const demo = requestedDemo || state.demo;
+    $('#mode-badge').hidden = !demo;
+    const note = $('#connection-note');
+    note.dataset.mode = demo ? 'demo' : getBridge() && hostReceived ? 'connected' : 'disconnected';
+    note.textContent = demo ? '界面演示 · 使用示例音箱，所有调整仅影响演示数据' : getBridge() && hostReceived ? '已连接声屿应用 · 音箱状态由程序实时提供' : '独立网页尚未连接应用 · 设备操作不可用，可通过 ?demo=1 查看演示';
+    showDeviceName($('#source-name'), state.sourceName || (received ? '尚未找到主音源' : '等待连接应用'));
+    $('#device-count').textContent = state.devices.length;
+    $('#active-outputs').textContent = state.devices.filter(device => !source(device) && device.isConnected).length + ' 路转发';
+    $('#app-status').textContent = demo ? '界面演示 · 没有播放或录制声音' : state.status || (received ? '应用已连接' : '等待应用连接');
+    $('#master-value').textContent = canOperate() ? (activeEdits.has($('#master-volume')) ? $('#master-volume').value : Math.round(state.masterVolume)) : '—';
+    setInput($('#master-volume'), state.masterVolume); $('#master-volume').disabled = !canOperate() || calibrated();
+    $('#master-mute').disabled = !canOperate() || calibrated();
+    $('#master-mute').setAttribute('aria-pressed', String(state.isSourceMuted));
+    $('#master-mute').setAttribute('aria-label', state.isSourceMuted ? '取消主音源静音' : '静音主音源');
+    iconUse($('#master-mute'), state.isSourceMuted ? 'mute' : 'volume');
+    for (const [id, card] of nodes) if (!getDevice(id)) { card.remove(); nodes.delete(id); }
+    for (const [id, card] of spatialNodes) if (!getDevice(id)) { card.remove(); spatialNodes.delete(id); }
+    for (const device of state.devices) {
+      updateDevice(device, nodes.get(device.id) || makeDevice(device));
+      updateSpatial(device, spatialNodes.get(device.id) || makeSpatial(device));
+    }
+    $('#devices-empty').hidden = state.devices.length > 0;
+    updateAssignments();
+    $$('[data-action]').forEach(button => { button.disabled = !canOperate() || (calibrated() && button.dataset.action === 'calibrate'); });
+    notifySurfaces();
+  }
+
+  function navigate(target, updateHash = true) {
+    if (!['play', 'space', 'guide', 'appearance'].includes(target)) return;
+    page = target;
+    for (const section of $$('.page')) section.hidden = section.id !== 'page-' + target;
+    for (const button of $$('[data-page]')) {
+      const selected = button.dataset.page === target;
+      button.classList.toggle('selected', selected);
+      if (selected) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+    }
+    if (updateHash && location.hash !== '#' + target) history.replaceState(null, '', '#' + target);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    notifySurfaces();
+  }
+  function applyAppearance() {
+    const prefs = appearance.prefs;
+    root.dataset.theme = prefs.theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : prefs.theme;
+    root.dataset.ambient = prefs.ambient ? 'on' : 'off';
+    root.dataset.motionActive = prefs.motion ? 'on' : 'off';
+    root.dataset.transparency = prefs.transparency;
+    $('#ambient-toggle').checked = prefs.ambient;
+    $('#motion-toggle').checked = prefs.motion;
+    $('#transparency-toggle').checked = prefs.transparency === 'reduce';
+    $$('[data-theme-choice]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.themeChoice === prefs.theme)));
+    try { localStorage.setItem(appearance.prefix + 'appearance', JSON.stringify(prefs)); } catch (_) { /* Session choices work without storage. */ }
+    notifySurfaces();
+  }
+  function syncClarity() {
+    const clarity = window.ShengyuGlassSettings.getClarity();
+    $$('[data-clarity]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.clarity === clarity)));
+    $$('input[type=range]').forEach(setRangePaint);
+  }
+  function openAppearance(trigger) {
+    const popover = $('#appearance-popover');
+    if (!popover.hidden) { closeAppearance(); return; }
+    previousAppearanceFocus = trigger || document.activeElement;
+    popover.hidden = false;
+    $$('.quick-appearance').forEach(button => button.setAttribute('aria-expanded', 'true'));
+    $('#close-appearance').focus({ preventScroll: true }); notifySurfaces();
+  }
+  function closeAppearance() {
+    const popover = $('#appearance-popover'); if (popover.hidden) return;
+    popover.hidden = true;
+    $$('.quick-appearance').forEach(button => button.setAttribute('aria-expanded', 'false'));
+    if (previousAppearanceFocus?.isConnected) previousAppearanceFocus.focus({ preventScroll: true });
+    previousAppearanceFocus = null; notifySurfaces();
+  }
+  function hostMessage(message) {
+    if (!message || typeof message !== 'object') return;
+    if (message.link || message.pin || message.qr) {
+      const modal = openDialog('访客分享');
+      if (message.message) addParagraph(modal.body, String(message.message));
+      if (message.link) addParagraph(modal.body, '访问地址：' + String(message.link), 'guest-detail');
+      if (message.pin) addParagraph(modal.body, '验证码：' + String(message.pin), 'guest-detail');
+      if (message.link) {
+        const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'secondary-button'; copy.textContent = '复制访客访问资料';
+        copy.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(String(message.link) + (message.pin ? '\n验证码：' + String(message.pin) : ''));
+            toast('访客访问资料已复制。');
+          } catch (_) { toast('未能自动复制，请选中访问地址后按 Ctrl+C。', true); }
+        });
+        modal.body.append(copy);
+      }
+      // Only host-supplied inline image data can become an image. Never navigate or fetch.
+      if (typeof message.qr === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(message.qr) && message.qr.length < 2000000) {
+        const image = document.createElement('img'); image.src = message.qr; image.alt = '访客分享二维码'; modal.body.append(image);
+      }
+      addParagraph(modal.body, '将访问地址和验证码提供给你允许连接的访客。');
+    } else if (typeof message.message === 'string') toast(message.message, Boolean(message.error));
+  }
+
+  $$('[data-page]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.page)));
+  $$('[data-go]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.go)));
+  $('.brand').addEventListener('click', event => { event.preventDefault(); navigate('play'); });
+  $$('[data-action]').forEach(button => button.addEventListener('click', () => {
+    if (button.dataset.action === 'guest') showGuestPicker();
+    else send({ action: button.dataset.action });
+  }));
+  $$('[data-preset]').forEach(button => button.addEventListener('click', () => selectPreset(button.dataset.preset)));
+  $('#apply-preset').addEventListener('click', applyPreset);
+  trackEditing($('#master-volume'));
+  $('#master-volume').addEventListener('input', event => { $('#master-value').textContent = event.target.value; setRangePaint(event.target); });
+  $('#master-volume').addEventListener('change', event => send({ action: 'master', value: event.target.valueAsNumber }));
+  $('#master-mute').addEventListener('click', () => send({ action: 'mute', value: !state.isSourceMuted }));
+  $$('[data-theme-choice]').forEach(button => button.addEventListener('click', () => { appearance.prefs.theme = button.dataset.themeChoice; applyAppearance(); }));
+  $('#ambient-toggle').addEventListener('change', event => { appearance.prefs.ambient = event.target.checked; applyAppearance(); });
+  $('#motion-toggle').addEventListener('change', event => { appearance.prefs.motion = event.target.checked; applyAppearance(); });
+  $('#transparency-toggle').addEventListener('change', event => { appearance.prefs.transparency = event.target.checked ? 'reduce' : 'normal'; applyAppearance(); });
+  $$('[data-clarity]').forEach(button => button.addEventListener('click', () => window.ShengyuGlassSettings.setClarity(button.dataset.clarity)));
+  $$('.quick-appearance').forEach(button => button.addEventListener('click', () => openAppearance(button)));
+  $('#close-appearance').addEventListener('click', closeAppearance);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('#appearance-popover').hidden) { event.preventDefault(); closeAppearance(); } });
+  $('#show-licenses').addEventListener('click', () => {
+    const modal = openDialog('开源组件与署名');
+    addParagraph(modal.body, '声屿基于 PairUp，由 Jamim Mehdi 创作的原项目及其中文增强版本发展而来。原项目许可证与署名随程序保留。');
+    addParagraph(modal.body, '玻璃效果使用 Sam Asante 的 liquid-glass 0.1.1 原始折射组件（固定提交 4e7b769e1df7e5a7d3669fef22417fe3d2f79ade），并随离线页面包含 React、React DOM 与 Scheduler。');
+    addParagraph(modal.body, '完整许可文本位于程序 Web/glass 目录：LICENSE-samasante.txt、LICENSE-react.txt、LICENSE-react-dom.txt、LICENSE-scheduler.txt。SOURCE-NOTICE.md 记录来源与适配范围。');
+    addParagraph(modal.body, '彩色波形使用 David Haz 的 React Bits Strands，固定提交 496968c4117e21278f13917201b7d615bc5e7450。它采用 MIT + Commons Clause，完整许可位于 Web/strands/vendor/LICENSE-react-bits.md；允许作为应用的一部分使用，组件本身的单独销售、再许可和再分发受到限制。');
+    addParagraph(modal.body, '波形所需 React、React DOM、Scheduler 与 OGL 均随程序本地包含；对应许可与适配说明位于 Web/strands。原始波形绘制算法和着色器保留。');
+  });
+  window.addEventListener('hashchange', () => navigate(location.hash.slice(1), false));
+  const colorScheme = matchMedia('(prefers-color-scheme: dark)');
+  colorScheme.addEventListener('change', applyAppearance);
+  const unsubscribeAppearance = window.ShengyuGlassSettings.subscribe(syncClarity);
+  window.addEventListener('pagehide', () => { clearTimeout(toastTimer); clearTimeout(readyTimer); unsubscribeAppearance(); colorScheme.removeEventListener('change', applyAppearance); currentDialog?.close(); }, { once: true });
+  window.shengyuReceive = receive;
+  window.shengyuMessage = hostMessage;
+  window.ShengyuUI = Object.freeze({
+    getState: () => structuredClone(state),
+    inspect: () => ({ page, preset, demo: requestedDemo || state.demo, received, hostReceived, bridgeLive: Boolean(getBridge()), canOperate: canOperate(),
+      selected: Array.from(assignments).filter(([, entry]) => entry.check.checked).map(([id]) => id),
+      storagePrefix: appearance.prefix, deviceCount: nodes.size, diyCount: $$('[data-glass-setting]').length,
+      activeGlass: $$('[data-glass-optical][data-liquid-glass]').length })
+  });
+  applyAppearance(); syncClarity(); navigate(location.hash.slice(1) || 'play', false);
+  if (requestedDemo) receive({ demo: true, sourceName: '桌面主音箱', sourceId: 'demo-source', masterVolume: 64, status: '界面演示', devices: [
+    { id: 'demo-source', name: '桌面主音箱', kind: '有线音频', isSystemDefault: true, isConnected: true, volume: 64, latencyMs: 0, isFavorite: true, spatial: initialSpatial() },
+    { id: 'demo-left', name: '窗边音箱', kind: '蓝牙音频', isConnected: true, volume: 52, latencyMs: 126.5, isFavorite: true, syncStatusText: '演示延迟 · 未实测', spatial: initialSpatial() },
+    { id: 'demo-right', name: '沙发旁音箱', kind: '蓝牙音频', isConnected: true, volume: 45, latencyMs: 83.2, syncStatusText: '演示延迟 · 未实测', spatial: initialSpatial() },
+    { id: 'demo-extra', name: '备用音箱', kind: '有线音频', isConnected: false, volume: 38, latencyMs: 0, syncStatusText: '转发未开启', spatial: initialSpatial() }
+  ] }, false); else render();
+  function ready() {
+    if (readySent) return;
+    const bridge = getBridge();
+    if (bridge) { try { bridge.postMessage({ action: 'ready' }); readySent = true; render(); return; } catch (_) { /* Retry only the read-only handshake. */ } }
+    if (++readyAttempts < 20) readyTimer = setTimeout(ready, 250);
+  }
+  ready();
+})();

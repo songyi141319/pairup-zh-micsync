@@ -1,0 +1,33 @@
+{
+  "upstream": "https://github.com/DavidHDev/react-bits",
+  "commit": "496968c4117e21278f13917201b7d615bc5e7450",
+  "sourceSha256": "52901975284c1536114a899f6e03494088ef12085f4f1a8931bbd34f4c8006e9",
+  "shaders": {
+    "VERT": "427d4b9827b17bd6a699b4f7a6c48b9b072549ae625face5f159414c404f2f95",
+    "FRAG": "83bba66d4dee245aac97f9064feb8daddf48ff341b5440e11f63bf778af0f3cb",
+    "GLASS_FRAG": "05ad1170ddb3217c1e32b289ce7584e8c4c755a38c8f073b1137141634d317eb"
+  },
+  "dependencies": {
+    "ogl": "1.0.11",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "buildTool": {
+    "esbuild": "0.25.11"
+  },
+  "viewportMapping": {
+    "waveLogicalAspect": 1.7,
+    "sphereLogicalAspect": 1,
+    "display": "CSS maps the logical image to a user-controlled wave rectangle or a square sphere region without changing recipe values."
+  },
+  "adaptations": [
+    "Optional static frame for reduced motion",
+    "Pause or unmount when hidden",
+    "ResizeObserver with nonzero dimensions",
+    "Release frame, observer, canvas and WebGL context on unmount",
+    "Require WebGL 2 and successful links for both shader programs before scheduling frames",
+    "Explicitly delete allocated graphics objects and release context after initialization failure",
+    "Map a fixed logical wave aspect onto the physical layout and keep both sphere aspects square"
+  ],
+  "rendererAlgorithm": "Original VERT, FRAG and GLASS_FRAG are byte-identical; recipe uniform updates and render passes are retained. Resolution follows the documented viewport mapping."
+}

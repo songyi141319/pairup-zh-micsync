@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <Compile Include="../../src/PairUp.App/Audio/Spatial*.cs" Link="Audio/%(Filename)%(Extension)" />
+    <Compile Include="../../src/PairUp.App/Audio/DeviceProcessingSampleProvider.cs" Link="Audio/DeviceProcessingSampleProvider.cs" />
+    <Compile Include="../../src/PairUp.App/Audio/AudioDeviceInfo.cs" Link="Audio/AudioDeviceInfo.cs" />
+    <Compile Include="../../src/PairUp.App/Audio/OutputChannel.cs" Link="Audio/OutputChannel.cs" />
+    <Compile Include="../../src/PairUp.App/Audio/ChannelAudioBuffer.cs" Link="Audio/ChannelAudioBuffer.cs" />
+    <Compile Include="../../src/PairUp.App/Audio/FixedDelaySampleProvider.cs" Link="Audio/FixedDelaySampleProvider.cs" />
+    <Compile Include="../../src/PairUp.App/Audio/AudioCaptureEngine.cs" Link="Audio/AudioCaptureEngine.cs" />
+    <Compile Include="../../src/PairUp.App/Audio/SpectrumAnalyzer.cs" Link="Audio/SpectrumAnalyzer.cs" />
+    <Compile Include="../../src/PairUp.App/Services/SettingsStore.cs" Link="Services/SettingsStore.cs" />
+    <Compile Include="../../src/PairUp.App/Services/AudioEngine.cs" Link="Services/AudioEngine.cs" />
+    <Compile Include="../../src/PairUp.App/Services/WindowsDeviceVolume.cs" Link="Services/WindowsDeviceVolume.cs" />
+  </ItemGroup>
+</Project>

@@ -187,7 +187,7 @@ public sealed class GuestServer : IDisposable
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-        <title>{{deviceName}} — PairUp</title>
+        <title>{{deviceName}} — 声屿</title>
         <style>
           *{box-sizing:border-box;}
           body{
@@ -252,7 +252,7 @@ public sealed class GuestServer : IDisposable
                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </div>
-              <span class="brand-word">PAIRUP</span>
+              <span class="brand-word">声屿</span>
             </div>
             <div class="eyebrow">正在控制</div>
             <div class="name">{{deviceName}}</div>
@@ -277,7 +277,7 @@ public sealed class GuestServer : IDisposable
                 <div class="toggle" id="monoToggle" role="switch" tabindex="0" aria-label="单声道" aria-checked="false"><i></i></div>
               </div>
             </div>
-            <div class="footer-brand">由 PairUp 提供</div>
+            <div class="footer-brand">由声屿提供 · 基于 PairUp</div>
           </div>
           <script>
             const deviceId = {{JsonSerializer.Serialize(deviceId)}};

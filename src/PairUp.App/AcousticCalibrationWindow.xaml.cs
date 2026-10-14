@@ -45,7 +45,8 @@ public partial class AcousticCalibrationWindow : Window
         {
             DeviceId = d.Id,
             Name = d.Name + (d.Id == sourceId ? "（当前音源 / 对齐基准）" : ""),
-            IsSelected = d.Id == sourceId || (!d.Name.Contains("耳机") && !d.Name.Contains("headphone", StringComparison.OrdinalIgnoreCase)),
+            // Windows may name a wired speaker output "Headphones". Follow enabled routing, not names.
+            IsSelected = true,
             CanChangeSelection = d.Id != sourceId
         }).ToList();
         TargetsList.ItemsSource = _targets;
@@ -61,13 +62,17 @@ public partial class AcousticCalibrationWindow : Window
             MicrophoneCombo.ItemsSource = microphones;
             MicrophoneCombo.SelectedItem = microphones.FirstOrDefault(m => m.Name.Contains("KO-STAR", StringComparison.OrdinalIgnoreCase))
                 ?? microphones.FirstOrDefault(m => !m.Name.Contains("Hands-Free", StringComparison.OrdinalIgnoreCase));
+            if (microphones.Count == 0)
+            { StatusText.Text = "没有找到可用麦克风，请连接麦克风后重新打开本窗口。"; StartButton.IsEnabled = false; }
         }
         catch { StatusText.Text = "无法列出麦克风，请检查麦克风连接后重新打开本窗口。"; StartButton.IsEnabled = false; }
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
     {
-        if (_running || MicrophoneCombo.SelectedItem is not MicrophoneChoice microphone) return;
+        if (_running) return;
+        if (MicrophoneCombo.SelectedItem is not MicrophoneChoice microphone)
+        { StatusText.Text = "请先选择收音麦克风。"; return; }
         if (microphone.Name.Contains("Hands-Free", StringComparison.OrdinalIgnoreCase) || microphone.Name.Contains("Joy", StringComparison.OrdinalIgnoreCase))
         { StatusText.Text = "请选择独立麦克风，避免蓝牙音箱切换到通话模式。"; return; }
         var selected = _targets.Where(t => t.IsSelected).Select(t => new CalibrationTarget(t.DeviceId, t.Name)).ToList();
@@ -104,7 +109,11 @@ public partial class AcousticCalibrationWindow : Window
             if (_report.Plan.CanApply && AutoApplyCheck.IsChecked == true) ApplyResults();
         }
         catch (OperationCanceledException) { StatusText.Text = "已取消测量，原播放状态和延迟已恢复。"; }
-        catch (Exception ex) { StatusText.Text = "校准未完成：" + ex.Message; }
+        catch (Exception ex)
+        {
+            StatusText.Text = "校准未完成，未应用新的延迟。原因见下方：";
+            ResultsText.Text = ex.Message;
+        }
         finally
         {
             if (_engine.CalibrationRestoreWarning is { } warning) ResultsText.Text += "\n" + warning;

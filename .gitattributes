@@ -3,3 +3,9 @@
 *.ico binary
 *.exe binary
 *.zip binary
+
+# Pinned upstream files are verified byte-for-byte. Preserve their original
+# bytes even when another Windows checkout enables core.autocrlf.
+src/PairUp.App/Web/glass/glass-runtime.global.js -text
+src/PairUp.App/Web/strands/vendor/* -text
+tools/StrandsBuild/build.mjs text eol=lf

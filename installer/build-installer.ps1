@@ -9,10 +9,11 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+([.-][0-9A-Za-z]+)*$')]
-    [string]$Version = '0.3.6-zh.20261002-preview.2',
+    [string]$Version = '0.4.0-preview.2',
     [ValidatePattern('^\d{1,5}\.\d{1,5}\.\d{1,5}\.\d{1,5}$')]
-    [string]$WindowsVersion = '0.3.6.2',
+    [string]$WindowsVersion = '0.4.0.2',
     [string]$BinaryPath,
+    [string]$WebRoot,
     [string]$ExpectedBinarySha256,
     [string]$IsccPath,
     [string]$DotNetPath = 'dotnet'
@@ -63,16 +64,21 @@ if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
     throw "Application binary not found: $BinaryPath"
 }
 $BinaryPath = (Resolve-Path -LiteralPath $BinaryPath).Path
+if (-not $WebRoot) { $WebRoot = Join-Path (Split-Path -Parent $BinaryPath) 'Web' }
+if (-not (Test-Path -LiteralPath (Join-Path $WebRoot 'index.html') -PathType Leaf)) {
+    throw 'The matching published Web folder is required beside the application, or pass -WebRoot explicitly.'
+}
+$WebRoot = (Resolve-Path -LiteralPath $WebRoot).Path
 $binaryHash = (Get-FileHash -LiteralPath $BinaryPath -Algorithm SHA256).Hash
 if ($ExpectedBinarySha256 -and $binaryHash -ne $ExpectedBinarySha256) {
     throw 'Application checksum does not match ExpectedBinarySha256.'
 }
 
 Write-Host "Compiling the Chinese installer with $IsccPath..."
-& $IsccPath "/DMyAppVersion=$Version" "/DWindowsVersion=$WindowsVersion" "/DAppBinary=$BinaryPath" $issPath
+& $IsccPath "/DMyAppVersion=$Version" "/DWindowsVersion=$WindowsVersion" "/DAppBinary=$BinaryPath" "/DAppWebRoot=$WebRoot" $issPath
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed." }
 
-$output = Join-Path $PSScriptRoot "Output\PairUp-Chinese-Setup-$Version-win-x64.exe"
+$output = Join-Path $PSScriptRoot "Output\Shengyu-Setup-$Version-win-x64.exe"
 if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { throw 'Installer output was not created.' }
 [pscustomobject]@{
     Installer = $output

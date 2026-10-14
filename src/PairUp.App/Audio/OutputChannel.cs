@@ -13,7 +13,7 @@ public sealed record DriverBufferInfo(double LatencyMs, double PaddingMs);
 public sealed class OutputChannel : IDisposable
 {
     private readonly ChannelAudioBuffer _buffer;
-    private readonly DeviceProcessingSampleProvider _processingProvider;
+    private readonly SpatialOutputSampleProvider _processingProvider;
     private readonly VolumeSampleProvider _volumeProvider;
     private readonly WasapiOut _output;
     private readonly AudioClient? _renderClient;
@@ -23,19 +23,12 @@ public sealed class OutputChannel : IDisposable
     public OutputChannel(MMDevice device, WaveFormat sourceFormat)
     {
         DeviceId = device.ID;
+        SpatialSampleProvider.ValidateChannels(sourceFormat.Channels);
+        var outputFormat = device.AudioClient.MixFormat;
+        SpatialSampleProvider.ValidateChannels(outputFormat.Channels);
         _buffer = new ChannelAudioBuffer(sourceFormat);
-        ISampleProvider sampleChain = _buffer.Samples;
-
-        // Match channel count before resampling so WdlResampler only has to handle sample rate.
-        if (sourceFormat.Channels == 1 && device.AudioClient.MixFormat.Channels == 2)
-            sampleChain = new MonoToStereoSampleProvider(sampleChain);
-        else if (sourceFormat.Channels == 2 && device.AudioClient.MixFormat.Channels == 1)
-            sampleChain = new StereoToMonoSampleProvider(sampleChain);
-
-        if (sourceFormat.SampleRate != device.AudioClient.MixFormat.SampleRate)
-            sampleChain = new WdlResamplingSampleProvider(sampleChain, device.AudioClient.MixFormat.SampleRate);
-
-        _processingProvider = new DeviceProcessingSampleProvider(sampleChain);
+        // Spatial allocation must see original L/R before any stereo-to-mono conversion.
+        _processingProvider = new SpatialOutputSampleProvider(_buffer.Samples, outputFormat.Channels, outputFormat.SampleRate);
         _volumeProvider = new VolumeSampleProvider(_processingProvider) { Volume = 0.75f };
 
         _output = new WasapiOut(device, AudioClientShareMode.Shared, true, ChooseLatencyMs(device));
@@ -120,6 +113,14 @@ public sealed class OutputChannel : IDisposable
         get => _processingProvider.MonoDownmix;
         set => _processingProvider.MonoDownmix = value;
     }
+
+    public SpatialProfile Spatial
+    {
+        get => _processingProvider.Spatial;
+        set => _processingProvider.Spatial = value;
+    }
+
+    public void SetCalibrationBypass(bool bypass) => _processingProvider.CalibrationBypass = bypass;
 
     /// <summary>
     /// Holds faster devices back using a delay line which the drift balancer cannot erase.

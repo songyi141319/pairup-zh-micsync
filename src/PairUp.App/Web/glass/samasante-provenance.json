@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/samasante/liquid-glass",
+  "commit": "4e7b769e1df7e5a7d3669fef22417fe3d2f79ade",
+  "version": "0.1.1",
+  "sources": {
+    "GlassMaterial.tsx": "4eda547474512c3b816e03903394599aab8a44f319f9845d74b776c9ee4bf09d",
+    "displacement.ts": "3d6f222f12485f8bbb5fed20ecf324cebf9135fdac53e032f5cc22539f0b96ad",
+    "signal.ts": "6bb10d8fa81f671105a44f199e1344041e339259b5b6ae51cc0d28976b8784a1"
+  },
+  "bundleSha256": "99f991e020fabb4982d6f38d6aa8fcf372b8bccf3e24be6dae070d9f5da9f3c3",
+  "build": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "esbuild": "0.25.11"
+  },
+  "sourceModification": "none"
+}

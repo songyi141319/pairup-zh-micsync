@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using PairUp.App.Audio;
 using PairUp.App.Controls;
 using PairUp.App.Services;
@@ -14,13 +15,16 @@ namespace PairUp.App;
 
 public partial class MainWindow : Window
 {
-    public const string AppVersion = "0.3.6";
+    public const string AppVersion = "0.4.0";
 
     private readonly AudioDeviceManager _deviceManager = new();
     private readonly MainWindowViewModel _viewModel = new();
     private readonly AudioEngine _audioEngine = new();
     private readonly SettingsStore _settingsStore = new();
-    private bool _isRestoringSettings;
+    private bool _isRestoringSettings = true;
+    private bool _reflectingWindowsVolume;
+    private double? _lastSourceVolume;
+    private readonly DispatcherTimer _volumeSyncTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private LayeredWaveVisualizer? _visualizer;
     private GuestServer? _guestServer;
     private readonly ClickCalibrator _calibrator = new();
@@ -32,13 +36,18 @@ public partial class MainWindow : Window
     private bool _exitAfterAcousticCalibration;
     private Dictionary<string, DeviceSettings>? _acousticDeviceSnapshot;
     private bool _rejectingCalibrationChanges;
+    private string? _deviceConnectionWarning;
 
-    public MainWindow()
+    private readonly bool _uiPreview;
+
+    public MainWindow(bool uiPreview = false)
     {
+        _uiPreview = uiPreview;
         InitializeComponent();
         DataContext = _viewModel;
         ThemeService.ApplyCurrentSystemTheme();
-        LoadDevices();
+        if (_uiPreview) LoadPreviewDevices(); else LoadDevices();
+        _volumeSyncTimer.Tick += (_, _) => SyncWindowsVolumes();
         SourceInitialized += (_, _) =>
         {
             ApplyRoundedCorners();
@@ -54,11 +63,13 @@ public partial class MainWindow : Window
         };
         Closed += (_, _) =>
         {
+            _volumeSyncTimer.Stop();
             _visualizer?.Stop();
             _audioEngine.Dispose();
             _guestServer?.Dispose();
             _calibrator.Dispose();
             _tray?.Dispose();
+            DisposeGlass();
 
             // NAudio's native WASAPI capture/render threads aren't always true .NET background
             // threads, so the process can outlive every window by several seconds even after
@@ -67,7 +78,7 @@ public partial class MainWindow : Window
             Environment.Exit(0);
         };
 
-        _tray = new TrayIconService(
+        if (!_uiPreview) _tray = new TrayIconService(
             () => _viewModel.Devices,
             device => device.IsConnected = !device.IsConnected,
             RestoreFromTray,
@@ -76,10 +87,14 @@ public partial class MainWindow : Window
 
         Loaded += (_, _) =>
         {
+            _ = InitializeGlassAsync();
+            if (_uiPreview) return;
             // Start capture immediately so the visualizer has real audio to react to right away,
             // instead of only once the user connects a device or touches mute.
             try { _audioEngine.EnsureCaptureStarted(); }
-            catch (InvalidOperationException ex) { MessageBox.Show(ex.Message, "PairUp", MessageBoxButton.OK, MessageBoxImage.Warning); }
+            catch (InvalidOperationException ex) { MessageBox.Show(ex.Message, "声屿", MessageBoxButton.OK, MessageBoxImage.Warning); }
+            SyncWindowsVolumes(followSourceChanges: false, resetSourceBaseline: true);
+            _volumeSyncTimer.Start();
             _visualizer = new LayeredWaveVisualizer(VisualizerCanvas, _audioEngine);
             _visualizer.Start();
 
@@ -90,19 +105,17 @@ public partial class MainWindow : Window
             _ = CheckForUpdatesOnLaunchAsync();
         };
         _audioEngine.SyncStatusUpdated += AudioEngine_SyncStatusUpdated;
-        _audioEngine.OsMasterVolumeChanged += OsMasterVolumeChanged;
-        _audioEngine.OsMuteChanged += OsMuteChanged;
         StateChanged += (_, _) =>
         {
             MaximizeButton.Content = WindowState == WindowState.Maximized ? "" : "";
-            if (WindowState == WindowState.Minimized)
+            if (!_uiPreview && WindowState == WindowState.Minimized)
             {
                 Hide();
                 ShowInTaskbar = false;
                 if (!_hasShownTrayBalloon)
                 {
                     _hasShownTrayBalloon = true;
-                    _tray?.ShowBalloon("PairUp", "PairUp 仍在系统托盘中运行。双击图标可重新打开，右键可切换设备。");
+                    _tray?.ShowBalloon("声屿", "声屿仍在系统托盘中运行。双击图标可重新打开，右键可切换设备。");
                 }
             }
         };
@@ -148,29 +161,59 @@ public partial class MainWindow : Window
         });
     }
 
-    private void OsMasterVolumeChanged(double percent)
+    private void SyncWindowsVolumes(bool followSourceChanges = true, bool resetSourceBaseline = false)
     {
-        Dispatcher.Invoke(() =>
+        if (_uiPreview) return;
+        if (_isRestoringSettings || _audioEngine.IsCalibrating) return;
+        var sourceId = _audioEngine.SourceDeviceId ?? _viewModel.DefaultDevice?.Id;
+        var ids = _viewModel.Devices.Select(d => d.Id).ToList();
+        if (sourceId is not null) ids.Add(sourceId);
+        var volumes = WindowsDeviceVolume.Read(ids);
+        double? observedSource = sourceId is not null && volumes.TryGetValue(sourceId, out var observed)
+            ? observed.Percent : null;
+        if (sourceId is not null && volumes.TryGetValue(sourceId, out var source) &&
+            followSourceChanges && _lastSourceVolume is { } previous && Math.Abs(source.Percent - previous) >= 0.05)
         {
-            _isRestoringSettings = true; // reflect only — the engine already applied this value
-            try { _viewModel.MasterVolume = percent; }
-            finally { _isRestoringSettings = false; }
-        });
-    }
+            // Windows flyout/media keys: fan out only once, outside any native callback.
+            _audioEngine.SetMasterVolume(source.Percent);
+            volumes = WindowsDeviceVolume.Read(ids); // Show actual, possibly quantized device values.
+            RefreshStatusText();
+        }
 
-    private void OsMuteChanged(bool muted)
-    {
-        Dispatcher.Invoke(() => _viewModel.IsSourceMuted = muted);
+        var changed = false;
+        _reflectingWindowsVolume = true;
+        try
+        {
+            if (sourceId is not null && volumes.TryGetValue(sourceId, out var current))
+            {
+                changed |= Math.Abs(_viewModel.MasterVolume - current.Percent) >= 0.05;
+                // A device-only readback must not consume a pending Windows master change.
+                // Remember the initial observation, not a newer change during the fan-out.
+                if (followSourceChanges || resetSourceBaseline || _lastSourceVolume is null)
+                    _lastSourceVolume = observedSource;
+                _viewModel.MasterVolume = current.Percent;
+                _viewModel.IsSourceMuted = current.Muted;
+            }
+            foreach (var device in _viewModel.Devices)
+                if (volumes.TryGetValue(device.Id, out var state) && Math.Abs(device.Volume - state.Percent) >= 0.05)
+                {
+                    device.Volume = state.Percent;
+                    changed = true;
+                }
+        }
+        finally { _reflectingWindowsVolume = false; }
+        if (changed) SaveSettings();
     }
 
     private void MuteSource_Click(object sender, RoutedEventArgs e)
     {
+        if (_uiPreview) return;
         var checkbox = (CheckBox)sender;
         if (!_audioEngine.TrySetSourceMuted(checkbox.IsChecked == true))
         {
             checkbox.IsChecked = !checkbox.IsChecked; // revert — no source device available yet
             MessageBox.Show(_audioEngine.SourceControlError ?? "无法调整音源静音，请检查连接。",
-                "PairUp", MessageBoxButton.OK, MessageBoxImage.Warning);
+                "声屿", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -202,6 +245,7 @@ public partial class MainWindow : Window
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
     {
+        if (_uiPreview) return;
         var button = (Button)sender;
         var originalContent = button.Content;
         button.IsEnabled = false;
@@ -266,13 +310,13 @@ public partial class MainWindow : Window
             }
             else
             {
-                MessageBox.Show($"当前已是最新版本（v{AppVersion}）。", "PairUp",
+                MessageBox.Show($"当前已是最新版本（v{AppVersion}）。", "声屿",
                     MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
         catch
         {
-            MessageBox.Show("检查更新失败，请检查网络连接后重试。", "PairUp",
+            MessageBox.Show("检查更新失败，请检查网络连接后重试。", "声屿",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
@@ -302,8 +346,8 @@ public partial class MainWindow : Window
             CheckUpdateButton.Background = (System.Windows.Media.Brush)FindResource("AccentBrush");
             CheckUpdateButton.Foreground = new System.Windows.Media.SolidColorBrush(
                 System.Windows.Media.Color.FromRgb(0x0C, 0x15, 0x12));
-            _tray?.ShowBalloon("PairUp 有可用更新",
-                $"v{result.LatestVersion} 已就绪。打开 PairUp 并点击“检查更新”即可安装。");
+            _tray?.ShowBalloon("声屿有可用更新",
+                $"v{result.LatestVersion} 已就绪。打开声屿并点击“检查更新”即可安装。");
         }
         catch
         {
@@ -353,30 +397,35 @@ public partial class MainWindow : Window
 
     private void LoadDevices()
     {
-        var defaultDeviceId = _deviceManager.GetDefaultDeviceId();
+        if (_uiPreview) return;
+        var defaultDeviceId = _audioEngine.SourceDeviceId ?? _deviceManager.GetDefaultDeviceId();
         var (savedMasterVolume, savedSettings) = _settingsStore.Load();
+        var devices = _deviceManager.GetOutputDevices();
+        var volumes = WindowsDeviceVolume.Read(devices.Select(d => d.Id));
 
         _isRestoringSettings = true;
         try
         {
-            _viewModel.MasterVolume = savedMasterVolume;
-            _audioEngine.SetMasterVolume(savedMasterVolume);
+            _viewModel.MasterVolume = volumes.TryGetValue(defaultDeviceId, out var source) ? source.Percent : savedMasterVolume;
+            _lastSourceVolume ??= source?.Percent;
             _viewModel.Devices.Clear();
-            foreach (var device in _deviceManager.GetOutputDevices())
+            foreach (var device in devices)
             {
                 device.IsSystemDefault = device.Id == defaultDeviceId;
                 device.PropertyChanged += Device_PropertyChanged;
 
                 if (savedSettings.TryGetValue(device.Id, out var saved))
                 {
-                    device.Volume = saved.Volume;
+                    device.Volume = volumes.TryGetValue(device.Id, out var state) ? state.Percent : saved.Volume;
                     device.LatencyMs = saved.LatencyMs;
                     device.IsFavorite = saved.IsFavorite;
                     device.BassBoost = saved.BassBoost;
                     device.Treble = saved.Treble;
                     device.IsMono = saved.IsMono;
+                    device.Spatial = saved.Spatial?.TryValidate(out _) == true ? saved.Spatial : new SpatialProfile();
                     device.IsConnected = saved.IsConnected && !device.IsSystemDefault;
                 }
+                else if (volumes.TryGetValue(device.Id, out var state)) device.Volume = state.Percent;
 
                 _viewModel.Devices.Add(device);
             }
@@ -389,6 +438,7 @@ public partial class MainWindow : Window
         var defaultDevice = _viewModel.Devices.FirstOrDefault(d => d.IsSystemDefault);
         _viewModel.SourceName = defaultDevice?.Name ?? "系统播放音源";
         _viewModel.DefaultDevice = defaultDevice;
+        SyncWindowsVolumes(followSourceChanges: false);
 
         UpdateConnectedSummary();
         ResortDevices();
@@ -397,24 +447,31 @@ public partial class MainWindow : Window
     }
 
     private void RefreshStatusText() =>
-        _viewModel.StatusText = $"PairUp v{AppVersion} 中文增强版 · 延迟 0–3000 毫秒 · 麦克风自动校准 · {_viewModel.Devices.Count} 个输出设备";
+        _viewModel.StatusText = _deviceConnectionWarning ?? _audioEngine.VolumeControlError ??
+            $"声屿 v{AppVersion} · Windows 音量联动 · 延迟 0–3000 毫秒 · {_viewModel.Devices.Count} 个输出设备";
 
     private void SaveSettings()
     {
+        if (_uiPreview) return;
         var settings = _viewModel.Devices.Select(d =>
             new DeviceSettings(d.Id, d.IsConnected, d.Volume, d.LatencyMs, d.IsFavorite,
-                d.BassBoost, d.Treble, d.IsMono));
+                d.BassBoost, d.Treble, d.IsMono, d.Spatial));
         _settingsStore.Save(_viewModel.MasterVolume, settings);
     }
 
     private void MasterVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        // When _isRestoringSettings is set by OsMasterVolumeChanged, the engine already applied
-        // this value (it's the source of the change) — re-calling SetMasterVolume here would
-        // write the same value back to the OS endpoint and risk a notification ping-pong.
-        if (_isRestoringSettings) return;
+        if (_uiPreview || _isRestoringSettings || _reflectingWindowsVolume) return;
 
-        _audioEngine.SetMasterVolume(e.NewValue);
+        if (!_audioEngine.SetMasterVolume(e.NewValue))
+        {
+            _reflectingWindowsVolume = true;
+            try { _viewModel.MasterVolume = e.OldValue; }
+            finally { _reflectingWindowsVolume = false; }
+        }
+        else _lastSourceVolume = e.NewValue; // This request has already been broadcast.
+        SyncWindowsVolumes(followSourceChanges: false);
+        RefreshStatusText();
         SaveSettings();
     }
 
@@ -441,7 +498,9 @@ public partial class MainWindow : Window
 
     private void Device_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (_uiPreview) return;
         if (sender is not AudioDeviceInfo device) return;
+        if (_reflectingWindowsVolume) return;
         if (_rejectingCalibrationChanges) return;
         if (!_isRestoringSettings && _acousticCalibrationWindow?.IsMeasuring == true && _acousticDeviceSnapshot?.TryGetValue(device.Id, out var original) == true)
         {
@@ -457,6 +516,7 @@ public partial class MainWindow : Window
                     case nameof(AudioDeviceInfo.BassBoost): device.BassBoost = original.BassBoost; return;
                     case nameof(AudioDeviceInfo.Treble): device.Treble = original.Treble; return;
                     case nameof(AudioDeviceInfo.IsMono): device.IsMono = original.IsMono; return;
+                    case nameof(AudioDeviceInfo.Spatial): device.Spatial = original.Spatial ?? new(); return;
                 }
             }
             finally { _rejectingCalibrationChanges = false; }
@@ -468,15 +528,15 @@ public partial class MainWindow : Window
                 if (device.IsConnected)
                 {
                     var result = _audioEngine.TryAddOutput(
-                        device.Id, device.Volume, device.LatencyMs,
-                        device.BassBoost, device.Treble, device.IsMono);
+                        device.Id, device.LatencyMs,
+                        device.BassBoost, device.Treble, device.IsMono, device.Spatial);
 
                     if (result == AddOutputResult.WouldEcho)
                     {
                         device.IsConnected = false; // triggers the else-branch below, clearing IsOutOfRange
                         MessageBox.Show(
                             $"无法添加“{device.Name}”：它目前是系统默认播放设备；把声音再转发到同一设备会造成回声。请先更换系统默认输出设备，再重试。",
-                            "PairUp", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            "声屿", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
                     else if (result == AddOutputResult.DeviceUnavailable)
                     {
@@ -486,7 +546,13 @@ public partial class MainWindow : Window
                         device.IsOutOfRange = true;
                         MessageBox.Show(
                             $"暂时无法连接“{device.Name}”。请检查它是否超出蓝牙范围或已关闭；重新连接前，它会显示为“超出范围”。",
-                            "PairUp", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            "声屿", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    else if (result == AddOutputResult.UnsupportedFormat)
+                    {
+                        device.IsConnected = false;
+                        _deviceConnectionWarning = $"“{device.Name}”暂未开启：音源和输出都需要设为单声道或立体声，目前不支持 6/8 声道。请调整 Windows 声音格式后重新打开程序。";
+                        if (!_isRestoringSettings) MessageBox.Show(_deviceConnectionWarning, "声屿", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
                     else if (result == AddOutputResult.CalibrationInProgress)
                         device.IsConnected = false;
@@ -494,7 +560,16 @@ public partial class MainWindow : Window
                     {
                         device.IsConnected = false;
                         MessageBox.Show(_audioEngine.CaptureError ?? "音源不可用，请检查原音源连接。",
-                            "PairUp", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            "声屿", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
+                    else if (result == AddOutputResult.Success && !_isRestoringSettings)
+                    {
+                        _deviceConnectionWarning = null;
+                        // A newly enabled output joins the current master level. Restoring an
+                        // existing setup at startup only reads Windows volumes, never raises them.
+                        _audioEngine.SetVolume(device.Id, _viewModel.MasterVolume);
+                        SyncWindowsVolumes(followSourceChanges: false);
+                        RefreshStatusText();
                     }
                 }
                 else
@@ -507,7 +582,10 @@ public partial class MainWindow : Window
                 break;
 
             case nameof(AudioDeviceInfo.Volume):
+                if (_isRestoringSettings) break;
                 _audioEngine.SetVolume(device.Id, device.Volume);
+                SyncWindowsVolumes(followSourceChanges: false);
+                RefreshStatusText();
                 break;
 
             case nameof(AudioDeviceInfo.LatencyMs):
@@ -530,6 +608,10 @@ public partial class MainWindow : Window
                 _audioEngine.SetMono(device.Id, device.IsMono);
                 break;
 
+            case nameof(AudioDeviceInfo.Spatial):
+                if (!device.IsSystemDefault) _audioEngine.SetSpatial(device.Id, device.Spatial);
+                break;
+
             case nameof(AudioDeviceInfo.IsProcessingExpanded):
             case nameof(AudioDeviceInfo.SyncStatusText):
             case nameof(AudioDeviceInfo.SyncDetailsText):
@@ -548,6 +630,7 @@ public partial class MainWindow : Window
 
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
+        if (_uiPreview) return;
         var button = (Button)sender;
         var originalContent = button.Content;
         button.IsEnabled = false;
@@ -584,11 +667,12 @@ public partial class MainWindow : Window
 
     private void MicrophoneCalibration_Click(object sender, RoutedEventArgs e)
     {
+        if (_uiPreview) return;
         _calibrator.Stop();
         CalibratePopup.IsOpen = false;
         var window = new AcousticCalibrationWindow(_audioEngine, _viewModel.Devices, ApplyAcousticDelays) { Owner = this };
         window.MeasurementStarting += () => _acousticDeviceSnapshot = _viewModel.Devices.ToDictionary(d => d.Id,
-            d => new DeviceSettings(d.Id, d.IsConnected, d.Volume, d.LatencyMs, d.IsFavorite, d.BassBoost, d.Treble, d.IsMono));
+            d => new DeviceSettings(d.Id, d.IsConnected, d.Volume, d.LatencyMs, d.IsFavorite, d.BassBoost, d.Treble, d.IsMono, d.Spatial));
         _acousticCalibrationWindow = window;
         try { window.ShowDialog(); }
         finally
@@ -650,6 +734,7 @@ public partial class MainWindow : Window
 
     private void CalibrateStart_Click(object sender, RoutedEventArgs e)
     {
+        if (_uiPreview) return;
         if (_calibratingDevice is null) return;
 
         try
@@ -769,7 +854,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
         set { _hasFavorites = value; OnPropertyChanged(); }
     }
 
-    private string _statusText = "PairUp";
+    private string _statusText = "声屿";
     public string StatusText
     {
         get => _statusText;

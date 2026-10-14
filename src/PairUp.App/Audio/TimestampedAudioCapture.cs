@@ -50,6 +50,8 @@ public sealed class TimestampedAudioCapture : IDisposable
             using var enumerator = new MMDeviceEnumerator();
             using var device = enumerator.GetDevice(_deviceId);
             if (!_loopback && device.AudioEndpointVolume.Mute) throw new InvalidOperationException("所选麦克风处于静音，请取消麦克风静音后重试");
+            if (!_loopback && device.AudioEndpointVolume.MasterVolumeLevelScalar <= 0)
+                throw new InvalidOperationException("所选麦克风输入音量为 0%，请在 Windows 中调高麦克风输入音量后重试");
             using var client = device.AudioClient;
             var format = client.MixFormat.AsStandardWaveFormat();
             SampleRate = format.SampleRate;
@@ -92,7 +94,7 @@ public sealed class TimestampedAudioCapture : IDisposable
         catch (Exception ex)
         {
             lock (_gate) _failure = ex;
-            _ready.TrySetException(ex);
+            _ready.TrySetException(new InvalidOperationException((_loopback ? "无法读取电脑内部的参考声音：" : "无法启动麦克风收音：") + ex.Message, ex));
         }
     }
 
@@ -100,7 +102,7 @@ public sealed class TimestampedAudioCapture : IDisposable
     {
         lock (_gate)
         {
-            if (_failure is not null) throw new InvalidOperationException("录音设备或音源中断，请重新连接后再测量", _failure);
+            if (_failure is not null) throw new InvalidOperationException((_loopback ? "电脑内部的参考声音读取中断：" : "麦克风收音中断：") + _failure.Message, _failure);
             var count = (int)Math.Ceiling((endQpc - startQpc) * SampleRate / 10000000.0);
             if (count <= 0 || count > SampleRate * 12) throw new ArgumentOutOfRangeException(nameof(endQpc));
             var samples = new float[count];

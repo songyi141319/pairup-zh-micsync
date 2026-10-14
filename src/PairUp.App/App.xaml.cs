@@ -17,7 +17,7 @@ public partial class App : Application
         // synchronous WASAPI device enumeration) blocks the UI thread.
         Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
 
-        var main = new MainWindow();
+        var main = new MainWindow(e.Args.Contains("--ui-preview", StringComparer.Ordinal));
         MainWindow = main;
 
         void CloseSplash(object? sender, RoutedEventArgs args)

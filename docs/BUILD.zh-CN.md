@@ -1,6 +1,6 @@
 # 构建与继续开发
 
-环境：Windows、.NET 8 SDK。现成下载包使用 Windows x64，自包含发布，无需另装运行环境。源码项目为 WPF/C#，即 Windows 桌面程序。
+环境：Windows、.NET 8 SDK。现成下载包使用 Windows x64，自带 .NET。源码项目为 WPF/C#，即 Windows 桌面程序；0.4.0 使用 Microsoft Edge WebView2 显示离线玻璃界面，缺少此显示组件时回退原版界面。
 
 ## 获取源码
 
@@ -9,7 +9,7 @@ git clone https://github.com/songyi141319/pairup-zh-micsync.git
 cd pairup-zh-micsync
 ```
 
-也可以解压完整包里的 `source` 文件夹；从这里开始执行下面的命令。
+也可以解压旧完整包里的 `source` 文件夹，或本轮 `Shengyu-Source-0.4.0-preview.2.zip` 里的 `Shengyu-Source` 文件夹；从源码根目录开始执行下面的命令。发布标记 v0.4.0-preview.2 对应本轮声屿功能；旧版本保留在发布历史中。
 
 ## 构建
 
@@ -18,23 +18,44 @@ dotnet restore .\PairUp.sln
 dotnet build .\src\PairUp.App\PairUp.App.csproj -c Release
 ```
 
-首次还原依赖需要联网。主要依赖锁定为 NAudio 2.2.1、QRCoder 1.6.0；发布时使用的 SDK 为 8.0.425，运行组件为 8.0.31。
+首次还原依赖需要联网。主要依赖锁定为 NAudio 2.2.1、QRCoder 1.6.0、Microsoft.Web.WebView2 1.0.4258.31；.NET 运行组件为 8.0.31。波形的源码和固定依赖见 `tools/StrandsBuild`，预编译后的离线网页资源已随源码保存。
 
 ## 不出声的软件检查
 
 ```powershell
 dotnet run --project .\tools\SyncChecks\SyncChecks.csproj -c Release
+dotnet run --project .\tools\SpatialChecks\SpatialChecks.csproj -c Release
+dotnet run --project .\tools\BridgeChecks\BridgeChecks.csproj -c Release
+node .\src\PairUp.App\Web\checks.cjs
 ```
 
-当前基线为 35 项通过。这些检查不能代替真实麦克风测量。
+同步检查基线为 35 项、音场信号检查 29 项。桥接与网页检查分别覆盖输入校验和界面基础行为。这些检查不能代替真实麦克风测量。
 
-## 生成单文件程序
+后台渲染检查需 Playwright、Sharp 和 Chromium。设置 `SHENGYU_BROWSER_PATH` 为后台 Chromium 程序后，依次执行 `node tools/UiChecks/headless-ui.cjs <结果目录>`、`lifecycle-checks.cjs`、`graphics-checks.cjs` 和 `layout-checks.cjs`（均位于同一目录）。它们固定使用无窗口模式，不打开音频设备；布局检查还会测量波形/球体截图的实际像素。
+
+若正在运行从此源码目录启动的预览程序，请对 `dotnet build` 指定另外的 `-p:OutputPath=...`，再运行该目录生成的检查 DLL，避免覆盖正在使用的文件。不要为了构建强行结束用户正在使用的声屿。
+
+## 重新构建彩色波形
+
+已经随源码包含可直接分发的离线波形包。仅修改波形适配代码时才需要以下步骤：
+
+```powershell
+cd .\tools\StrandsBuild
+npm.cmd ci
+npm.cmd run build
+```
+
+需要 Node.js。依赖版本由 `package-lock.json` 固定，首次安装依赖需要联网。原始组件和三个绘制程序均核对逐字节哈希；固定上游文件已在 `.gitattributes` 中禁止换行转换，其他 Windows 电脑无需修改全局设置。
+
+只改参数不必重新构建，在程序“外观 → 彩色波形”内调整即可。Strands 使用 MIT + Commons Clause，来源和完整许可见 `Web/strands/SOURCE-NOTICE.md` 及 `vendor/LICENSE-react-bits.md`。
+
+## 生成程序与离线界面
 
 ```powershell
 dotnet publish .\src\PairUp.App\PairUp.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o .\publish
 ```
 
-结果在 `publish\PairUp.App.exe`。同一项目的构建、检查、发布应依次执行，避免同时修改构建中间文件。
+结果在 `publish\PairUp.App.exe`，并附有 `publish\Web`。必须一起分发，不可只复制 exe。音频程序和 .NET 仍打包到 exe，WebView2 由系统提供。同一项目的构建、检查、发布应依次执行，避免同时修改构建中间文件。
 
 ## 生成中文 EXE 安装包
 
@@ -44,7 +65,7 @@ dotnet publish .\src\PairUp.App\PairUp.App.csproj -c Release -r win-x64 --self-c
 .\installer\build-installer.ps1
 ```
 
-脚本先生成包含 .NET 运行组件的单文件程序，再编译安装包。结果在 `installer\Output\PairUp-Chinese-Setup-0.3.6-zh.20261002-preview.2-win-x64.exe`。构建过程不会打开 PairUp，也不会执行生成的安装包。
+脚本先生成包含 .NET 运行组件的程序与离线 Web 目录，再编译安装包。结果在 `installer\Output\Shengyu-Setup-0.4.0-preview.2-win-x64.exe`。构建过程不会打开声屿，也不会执行生成的安装包。
 
 若编译工具不在默认安装目录，用 `-IsccPath` 指定 `ISCC.exe`。如已准备好自包含程序，可直接打包，避免重新构建程序：
 
@@ -54,7 +75,7 @@ dotnet publish .\src\PairUp.App\PairUp.App.csproj -c Release -r win-x64 --self-c
 
 也可以提供 `-ExpectedBinarySha256` 核对指定程序，`-DotNetPath` 指定 .NET 工具路径。发布新版本时同时指定 `-Version`（显示及文件名版本）和 `-WindowsVersion`（四段数字版本）。
 
-本次 `preview.2` 安装包沿用 `preview.1` 的主程序；主程序 SHA256 为 `048D96ECECBC4B7D9ADAA2FB2BE3E9EB9C8696B8E75E8C56E122C7E7CC4F5A9F`。安装包源码、中文语言文件和安装说明已保存到 `installer`，Inno Setup 的许可证保存在 `licenses`。
+指定 `-BinaryPath` 时会使用同目录的 `Web` 文件夹，也可用 `-WebRoot` 明确指定与该程序匹配的网页目录。安装包源码、中文语言文件和安装说明保存在 `installer`，Inno Setup 的许可证保存在 `licenses`。
 
 安装包有独立的增强版名称、安装位置和卸载登记，不强制结束正在运行的音频程序。升级或卸载前，使用者需要正常退出 PairUp。安装完成页的“立即打开”默认不勾选；静默安装也不会自动启动程序。
 

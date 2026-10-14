@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:PairUp.App"
         xmlns:audio="clr-namespace:PairUp.App.Audio"
         mc:Ignorable="d"
-        Title="PairUp" Language="zh-CN" Height="760" Width="1180" MinWidth="640" MinHeight="420"
+        Title="声屿" Language="zh-CN" Height="760" Width="1180" MinWidth="640" MinHeight="420"
         Icon="app.ico"
         Background="{DynamicResource BgBrush}"
         FontFamily="Segoe UI"
@@ -164,7 +164,7 @@
                         </Grid>
                         <Slider Minimum="0" Maximum="100" Value="{Binding Volume}" Margin="0,4,0,0"
                                 IsEnabled="{Binding IsConnected}" AutomationProperties.Name="设备音量"
-                                ToolTip="调节此设备的音量"/>
+                                ToolTip="直接调节此设备在 Windows 声音属性中的音量；在系统里修改后，这里也会同步。"/>
                     </StackPanel>
 
                     <StackPanel Grid.Column="5" VerticalAlignment="Center" Margin="0,0,16,0">
@@ -344,21 +344,14 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
-                <Border Width="24" Height="24" CornerRadius="7" Margin="0,0,10,0"
-                        Background="{DynamicResource LogoMarkBrush}">
-                    <Viewbox Width="15" Height="15">
-                        <Path Data="M3 12c2-4 4-6 5-6s2 8 4 8 2-10 4-10 3 8 5 8"
-                              Stroke="{DynamicResource LogoGlyphBrush}" StrokeThickness="2"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
-                    </Viewbox>
-                </Border>
-                <TextBlock Text="PAIRUP" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold" FontSize="13"
+                <Image Width="24" Height="24" Margin="0,0,10,0" Source="Assets/shengyu.png"/>
+                <TextBlock Text="声屿" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold" FontSize="13"
                            Foreground="{DynamicResource TextMutedBrush}" VerticalAlignment="Center"/>
             </StackPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button x:Name="CreditButton" Content="&#xE946;" Style="{StaticResource CaptionButton}"
-                        FontSize="13" Click="CreditButton_Click" ToolTip="关于 PairUp"/>
+                        FontSize="13" Click="CreditButton_Click" ToolTip="关于声屿"/>
                 <Button Content="&#xE921;" Style="{StaticResource CaptionButton}" Click="Minimize_Click" ToolTip="最小化到托盘"/>
                 <Button x:Name="MaximizeButton" Content="&#xE922;" Style="{StaticResource CaptionButton}" Click="Maximize_Click" ToolTip="最大化或还原"/>
                 <Button Content="&#xE8BB;" Style="{StaticResource CloseButton}" Click="Close_Click" ToolTip="最小化到托盘"/>
@@ -373,7 +366,7 @@
                         <DropShadowEffect Color="#000000" Direction="270" ShadowDepth="4" BlurRadius="16" Opacity="0.35"/>
                     </Border.Effect>
                     <StackPanel>
-                        <TextBlock Text="开发者" Style="{StaticResource EyebrowText}" Margin="0,0,0,4"/>
+                        <TextBlock Text="PairUp 原作者" Style="{StaticResource EyebrowText}" Margin="0,0,0,4"/>
                         <TextBlock Text="Jamim Mehdi" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold"
                                    FontSize="18" Foreground="{DynamicResource TextBrush}" Margin="0,0,0,14"/>
 
@@ -614,7 +607,7 @@
                     </Grid>
                     <Slider Minimum="0" Maximum="100" Value="{Binding MasterVolume}" Margin="0,6,0,0"
                             ValueChanged="MasterVolume_ValueChanged" AutomationProperties.Name="主音量"
-                            ToolTip="调节所有输出设备的总音量"/>
+                            ToolTip="同步当前音源和已开启输出设备的 Windows 音量；Windows 音量键也会联动。单独微调后，下次调主音量会重新统一。"/>
                 </StackPanel>
 
                 </Grid>

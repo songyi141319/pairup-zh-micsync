@@ -27,6 +27,7 @@ Thumbs.db
 .claude/
 
 # Local runtime data and release staging
+debug.log
 release/
 artifacts/
 backups/

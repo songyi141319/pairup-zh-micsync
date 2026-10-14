@@ -16,8 +16,8 @@ public sealed record UpdateCheckResult(
 /// </summary>
 public static class UpdateChecker
 {
-    private const string RepoOwner = "jamimmehdi";
-    private const string RepoName = "pair-up-audio";
+    private const string RepoOwner = "songyi141319";
+    private const string RepoName = "pairup-zh-micsync";
 
     private static HttpClient CreateClient(string currentVersion)
     {

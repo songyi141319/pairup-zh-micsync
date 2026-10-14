@@ -22,8 +22,7 @@ public sealed class AudioCaptureEngine : IDisposable
 
     /// <summary>
     /// The captured device's OS volume control (the same one Windows' Quick Settings / volume
-    /// flyout shows). Loopback capture doesn't naturally reflect changes to it, so the caller
-    /// is expected to read/apply it as software gain manually.
+    /// flyout shows). PairUp links its percentage to the enabled output endpoints directly.
     /// </summary>
     public AudioEndpointVolume? SourceEndpointVolume => _sourceDevice?.AudioEndpointVolume;
 

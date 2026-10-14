@@ -11,7 +11,8 @@ public enum AddOutputResult
     WouldEcho,
     DeviceUnavailable,
     SourceUnavailable,
-    CalibrationInProgress
+    CalibrationInProgress,
+    UnsupportedFormat
 }
 
 public sealed record SyncStatus(string DeviceId, double DriftMs, bool IsReference, double QueueMs = 0,
@@ -26,11 +27,9 @@ public sealed class AudioEngine : IDisposable
     private readonly AudioCaptureEngine _capture = new();
     private readonly SpectrumAnalyzer _spectrum = new();
     private readonly Dictionary<string, OutputChannel> _channels = new();
-    private readonly Dictionary<string, double> _requestedVolumePercent = new();
     private readonly object _lock = new();
     private readonly Dictionary<string, Queue<double>> _queueHistory = new();
     private Timer? _syncTimer;
-    private double _masterVolumePercent = 100;
     private bool _isCalibrating;
     private string? _calibrationTargetId;
     private Dictionary<string, double>? _calibrationDelays;
@@ -45,19 +44,8 @@ public sealed class AudioEngine : IDisposable
 
     public event Action<IReadOnlyList<SyncStatus>>? SyncStatusUpdated;
 
-    /// <summary>Raised when the OS volume control for the captured device changes externally
-    /// (Windows' volume flyout, keyboard media keys, etc.), so the UI can mirror it.</summary>
-    public event Action<double>? OsMasterVolumeChanged;
-
-    /// <summary>Raised when the source device's mute state changes externally (Windows' volume
-    /// flyout, keyboard mute key, etc.), so the UI can mirror it.</summary>
-    public event Action<bool>? OsMuteChanged;
-
-    private bool _osVolumeHooked;
     private bool _desiredMute;
-    private bool _applyingMasterVolume;
-    private Timer? _muteGuardTimer;
-    private const int MuteGuardWindowMs = 400;
+    public string? VolumeControlError { get; private set; }
 
     public string? SourceDeviceId => _capture.SourceDeviceId;
     public string? CaptureError { get; private set; }
@@ -90,22 +78,8 @@ public sealed class AudioEngine : IDisposable
             var restarting = !_capture.IsCapturing;
             if (restarting)
             {
-                if (_osVolumeHooked)
-                {
-                    try
-                    {
-                        if (_capture.SourceEndpointVolume is { } oldEndpoint)
-                            oldEndpoint.OnVolumeNotification -= OnOsVolumeNotification;
-                    }
-                    catch { /* A disconnected endpoint may already have released its notification interface. */ }
-                    _osVolumeHooked = false;
-                }
                 _capture.Start();
-            }
-            if (!_osVolumeHooked && _capture.SourceEndpointVolume is { } endpointVolume)
-            {
-                endpointVolume.OnVolumeNotification += OnOsVolumeNotification;
-                _osVolumeHooked = true;
+                _desiredMute = _capture.SourceEndpointVolume?.Mute ?? false;
             }
             lock (_lock)
             {
@@ -113,7 +87,7 @@ public sealed class AudioEngine : IDisposable
                 CaptureError = null;
                 if (restarting)
                     foreach (var (id, channel) in _channels)
-                        channel.Volume = PlaybackGain(id, _requestedVolumePercent.GetValueOrDefault(id, 75));
+                        channel.Volume = PlaybackGain(id);
             }
             _syncTimer ??= new Timer(_ => RebalanceChannels(), null, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(SyncIntervalMs));
         }
@@ -123,39 +97,6 @@ public sealed class AudioEngine : IDisposable
             OnCaptureFailed(ex.Message);
             throw new InvalidOperationException(CaptureError, ex);
         }
-    }
-
-    private void OnOsVolumeNotification(AudioVolumeNotificationData data)
-    {
-        var percent = data.MasterVolume * 100;
-        var volumeChanged = false;
-
-        lock (_lock)
-        {
-            // Ignore notifications caused by our own SetMasterVolume writes.
-            if (Math.Abs(percent - _masterVolumePercent) >= 0.5)
-            {
-                volumeChanged = true;
-                _masterVolumePercent = percent;
-                foreach (var (deviceId, channel) in _channels)
-                {
-                    var requested = _requestedVolumePercent.GetValueOrDefault(deviceId, 75);
-                    channel.Volume = PlaybackGain(deviceId, requested);
-                }
-            }
-
-            // While we're mid-write in SetMasterVolume, the OS's own auto-unmute-on-volume-change
-            // fires a transient notification with Muted=false before we get to reassert the real
-            // value — ignore notifications during that window rather than trusting them as genuine.
-            if (!_applyingMasterVolume)
-                _desiredMute = data.Muted;
-        }
-
-        if (volumeChanged)
-            OsMasterVolumeChanged?.Invoke(percent);
-
-        if (!_applyingMasterVolume)
-            OsMuteChanged?.Invoke(_desiredMute);
     }
 
     /// <summary>
@@ -202,13 +143,16 @@ public sealed class AudioEngine : IDisposable
     /// paired but out of range, or was unplugged since the last device list refresh).
     /// </summary>
     public AddOutputResult TryAddOutput(
-        string deviceId, double volumePercent = 75, double delayMs = 0,
-        double bassBoostDb = 0, double trebleDb = 0, bool isMono = false)
+        string deviceId, double delayMs = 0,
+        double bassBoostDb = 0, double trebleDb = 0, bool isMono = false, SpatialProfile? spatial = null)
     {
+        spatial?.Validate();
+        lock (_lock)
+            if (_isCalibrating) return AddOutputResult.CalibrationInProgress;
         try { EnsureCaptureStarted(); }
         catch { return AddOutputResult.SourceUnavailable; }
 
-        if (deviceId == _capture.SourceDeviceId)
+        if (string.Equals(deviceId, _capture.SourceDeviceId, StringComparison.OrdinalIgnoreCase))
             return AddOutputResult.WouldEcho;
 
         lock (_lock)
@@ -226,10 +170,11 @@ public sealed class AudioEngine : IDisposable
                 channel.BassBoostDb = bassBoostDb;
                 channel.TrebleDb = trebleDb;
                 channel.IsMono = isMono;
-                _requestedVolumePercent[deviceId] = volumePercent;
-                channel.Volume = PlaybackGain(deviceId, volumePercent);
+                channel.Spatial = spatial ?? new SpatialProfile();
+                channel.Volume = PlaybackGain(deviceId);
                 _channels[deviceId] = channel;
             }
+            catch (NotSupportedException) { return AddOutputResult.UnsupportedFormat; }
             catch (Exception)
             {
                 return AddOutputResult.DeviceUnavailable;
@@ -246,7 +191,6 @@ public sealed class AudioEngine : IDisposable
             if (_isCalibrating) return;
             if (_channels.Remove(deviceId, out var channel))
                 channel.Dispose();
-            _requestedVolumePercent.Remove(deviceId);
             _queueHistory.Remove(deviceId);
         }
     }
@@ -255,6 +199,7 @@ public sealed class AudioEngine : IDisposable
     {
         lock (_lock)
         {
+            if (_isCalibrating) throw new InvalidOperationException("校准期间暂不调整音色。");
             if (_channels.TryGetValue(deviceId, out var channel))
                 channel.BassBoostDb = gainDb;
         }
@@ -264,6 +209,7 @@ public sealed class AudioEngine : IDisposable
     {
         lock (_lock)
         {
+            if (_isCalibrating) throw new InvalidOperationException("校准期间暂不调整音色。");
             if (_channels.TryGetValue(deviceId, out var channel))
                 channel.TrebleDb = gainDb;
         }
@@ -273,59 +219,68 @@ public sealed class AudioEngine : IDisposable
     {
         lock (_lock)
         {
+            if (_isCalibrating) throw new InvalidOperationException("校准期间暂不调整声道。");
             if (_channels.TryGetValue(deviceId, out var channel))
                 channel.IsMono = isMono;
         }
     }
 
-    public void SetVolume(string deviceId, double volumePercent)
+    public void SetSpatial(string deviceId, SpatialProfile spatial)
+    {
+        ArgumentNullException.ThrowIfNull(spatial);
+        spatial.Validate();
+        lock (_lock)
+        {
+            if (_isCalibrating) throw new InvalidOperationException("校准期间暂不调整音场。");
+            if (string.Equals(deviceId, _capture.SourceDeviceId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("主音源由 Windows 直接播放，只能保持原声；请为其他输出设置音场。");
+            if (_channels.TryGetValue(deviceId, out var channel)) channel.Spatial = spatial;
+        }
+    }
+
+    public bool SetVolume(string deviceId, double volumePercent)
     {
         lock (_lock)
         {
-            _requestedVolumePercent[deviceId] = volumePercent;
-            if (_channels.TryGetValue(deviceId, out var channel))
-                channel.Volume = PlaybackGain(deviceId, volumePercent);
+            if (_isCalibrating)
+            {
+                VolumeControlError = "校准期间暂不调整设备音量。";
+                return false;
+            }
         }
+        var success = WindowsDeviceVolume.TrySet(deviceId, volumePercent, out var error);
+        VolumeControlError = error;
+        return success;
     }
 
     /// <summary>
-    /// Applied as software gain against every channel (Windows' own volume flyout doesn't
-    /// reliably reach a WASAPI loopback capture tap — it typically applies at the hardware/driver
-    /// stage, after where the loopback is captured — so PairUp reads/writes the OS endpoint
-    /// volume itself and enforces it manually, keeping both controls in sync and both working).
+    /// Sets real Windows volume for the source and enabled outputs only. The caller serializes
+    /// UI and Windows changes on the dispatcher; no endpoint callbacks perform COM writes.
     /// </summary>
-    public void SetMasterVolume(double volumePercent)
+    public bool SetMasterVolume(double volumePercent)
     {
+        string[] ids;
         lock (_lock)
         {
-            _masterVolumePercent = volumePercent;
-            foreach (var (deviceId, channel) in _channels)
+            if (_isCalibrating || SourceDeviceId is null)
             {
-                var requested = _requestedVolumePercent.GetValueOrDefault(deviceId, 75);
-                channel.Volume = PlaybackGain(deviceId, requested);
+                VolumeControlError = _isCalibrating ? "校准期间暂不调整设备音量。" : "音源尚未就绪，请稍后再调整音量。";
+                return false;
             }
-
-            if (_capture.SourceEndpointVolume is { } endpointVolume)
-            {
-                // Setting MasterVolumeLevelScalar auto-unmutes the endpoint (same as a physical
-                // volume knob), and the resulting OnVolumeNotification callback is delivered
-                // asynchronously on its own thread — it can arrive well after this method
-                // returns, so a guard that resets immediately here doesn't actually suppress it.
-                // Keep the guard open for a short grace period instead, and always reassert our
-                // own tracked _desiredMute rather than trusting a live re-query.
-                _applyingMasterVolume = true;
-                _muteGuardTimer?.Dispose();
-                _muteGuardTimer = new Timer(_ => _applyingMasterVolume = false, null, MuteGuardWindowMs, Timeout.Infinite);
-
-                endpointVolume.MasterVolumeLevelScalar = (float)(volumePercent / 100.0);
-                endpointVolume.Mute = _desiredMute;
-            }
+            ids = _channels.Keys.Prepend(SourceDeviceId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         }
+        var errors = new List<string>();
+        foreach (var id in ids)
+            if (!WindowsDeviceVolume.TrySet(id, volumePercent, out var error))
+                errors.Add(error ?? "设备音量同步失败。");
+        VolumeControlError = errors.Count == 0 ? null : string.Join("；", errors.Distinct());
+        return errors.Count == 0;
     }
 
-    private float PlaybackGain(string deviceId, double requestedVolume) => _isCalibrating
-        ? (deviceId == _calibrationTargetId ? 1f : 0f)
-        : (float)(_masterVolumePercent / 100.0 * requestedVolume / 100.0);
+    // Endpoint volume already controls loudness. Software gain only gates calibration/failure;
+    // multiplying master and device percentages here would attenuate the same signal twice.
+    private float PlaybackGain(string deviceId) => CaptureError is not null ? 0f : _isCalibrating
+        ? (deviceId == _calibrationTargetId ? 1f : 0f) : 1f;
 
     public void SetDelay(string deviceId, double delayMs)
     {
@@ -377,6 +332,7 @@ public sealed class AudioEngine : IDisposable
             foreach (var channel in _channels.Values)
             {
                 channel.Volume = 0;
+                channel.SetCalibrationBypass(true);
                 channel.SetDelay(0);
                 channel.ClearForCalibration();
             }
@@ -419,7 +375,8 @@ public sealed class AudioEngine : IDisposable
                 channel.Volume = 0;
                 channel.ClearForCalibration();
                 if (_calibrationDelays?.TryGetValue(id, out var delay) == true) channel.SetDelay(delay);
-                channel.Volume = (float)(_masterVolumePercent / 100 * _requestedVolumePercent.GetValueOrDefault(id, 75) / 100);
+                channel.SetCalibrationBypass(false);
+                channel.Volume = CaptureError is null ? 1f : 0f;
             }
             _calibrationTargetId = null;
             _calibrationDelays = null;
@@ -461,10 +418,6 @@ public sealed class AudioEngine : IDisposable
         _capture.DataAvailable -= OnDataAvailable;
         _capture.CaptureFailed -= OnCaptureFailed;
         _syncTimer?.Dispose();
-        _muteGuardTimer?.Dispose();
-
-        if (_osVolumeHooked && _capture.SourceEndpointVolume is { } endpointVolume)
-            endpointVolume.OnVolumeNotification -= OnOsVolumeNotification;
 
         lock (_lock)
         {

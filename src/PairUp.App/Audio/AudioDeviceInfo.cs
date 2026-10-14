@@ -118,6 +118,20 @@ public sealed class AudioDeviceInfo : INotifyPropertyChanged
         set { _isMono = value; OnPropertyChanged(); }
     }
 
+    private SpatialProfile _spatial = new();
+    public SpatialProfile Spatial
+    {
+        get => _spatial;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            value.Validate();
+            if (_spatial == value) return;
+            _spatial = value;
+            OnPropertyChanged();
+        }
+    }
+
     private bool _isProcessingExpanded;
     /// <summary>UI-only: whether the EQ/mono panel is expanded for this device row.</summary>
     public bool IsProcessingExpanded
