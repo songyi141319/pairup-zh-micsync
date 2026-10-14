@@ -2,7 +2,14 @@
 
 面向 Windows 的多音箱同时播放工具。本仓库保存中文界面、精细延迟调节、软件积压修复和麦克风校准功能，方便在其他电脑使用或继续开发。当前开发版新增“声屿”玻璃界面、音乐音场分工和摆放教程。
 
-**当前开发预览：0.4.0-preview.2。包含声屿中文玻璃界面、音乐音场、可调长度的彩色波形与玻璃球。真实音箱听感、完整多音箱校准和长时间同步仍待实测。**
+**当前开发预览：0.4.0-preview.3。包含声屿中文玻璃界面、音乐音场、可调长度的彩色波形与玻璃球。真实音箱听感、完整多音箱校准和长时间同步仍待实测。**
+
+## 本轮新增
+
+- 校准默认从 20% 轻声开始，仅声音过弱时升到 30%、40%、50%，结束恢复原音量和静音。
+- 每台音箱提供单独试听和设为主音源，未启用设备默认折叠。
+- 新玻璃球标志与向外扩散的启动波纹。
+- [使用说明与验收边界](docs/DEVICE-ACTIONS.zh-CN.md)：本轮完成编译、静态审查和后台渲染，实体声音仍待使用者确认。
 
 ## 当前开发版
 
@@ -14,16 +21,16 @@
 
 音乐环绕是普通立体声的模拟扩展，不是原生独立 5.1 或杜比全景声解码。主音源保持 Windows 原声直出，其他转发音箱可分工。说明见 [音乐音场与摆放指南](docs/SHENGYU-GUIDE.zh-CN.md)。
 
-本地开发预览的检查与截图范围见 [2026-10-14 验证记录](docs/VALIDATION-20261014.zh-CN.md)。
+此前 preview.2 的检查与截图范围见 [2026-10-14 验证记录](docs/VALIDATION-20261014.zh-CN.md)。
 
 玻璃界面需要 Microsoft Edge WebView2 显示组件；缺少时使用原版界面。发布目录里的整个 `Web` 文件夹需要和主程序一起分发。
 
 ## 下载安装（推荐）
 
-- **[下载声屿 EXE 安装包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.2/Shengyu-Setup-0.4.0-preview.2-win-x64.exe)**
-- [下载免安装便携包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.2/Shengyu-Portable-0.4.0-preview.2-win-x64.zip)
-- [下载完整源码包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.2/Shengyu-Source-0.4.0-preview.2.zip)
-- [查看本次发布、截图、中文教程和校验文件](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.4.0-preview.2)
+- **[下载声屿 EXE 安装包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.3/Shengyu-Setup-0.4.0-preview.3-win-x64.exe)**
+- [下载免安装便携包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.3/Shengyu-Portable-0.4.0-preview.3-win-x64.zip)
+- [下载完整源码包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.3/Shengyu-Source-0.4.0-preview.3.zip)
+- [查看本次发布、截图、中文教程和校验文件](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.4.0-preview.3)
 - [旧版本下载与回退](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.3.6-zh.20261002-preview.2)
 
 适用于 Windows 10 / 11 的 x64 电脑。安装包已自带运行所需的 .NET 组件，双击下载的 `Shengyu-Setup-…-win-x64.exe`，按中文向导安装，再从桌面或开始菜单打开“声屿 · 多音箱音乐空间”。不需要编译源码或安装开发工具。

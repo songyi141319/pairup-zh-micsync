@@ -25,3 +25,8 @@
 ## 依赖
 
 NAudio、QRCoder 与 .NET 运行组件的声明见 THIRD-PARTY-NOTICES.md 和 licenses 文件夹。
+
+## 新图标与设备操作（0.4.0-preview.3）
+
+- 采用用户选定的“声屿山形”玻璃球标志。玻璃主图由 OpenAI 图像生成工具根据本项目设计生成，保留原创 SVG 小图回退；未采用第三方品牌标识。编码脚本见 tools/IconBuild/build-icon.cjs。
+- Windows 默认播放设备切换使用独立声明的 IPolicyConfig 接口；接口顺序和标识参考 EreTIk 的公开声明： https://github.com/tartakynov/audioswitch/blob/master/IPolicyConfig.h 。未复制其功能实现。该接口并非 Windows 的公开稳定接口，因此代码保留失败回滚与明确提示。

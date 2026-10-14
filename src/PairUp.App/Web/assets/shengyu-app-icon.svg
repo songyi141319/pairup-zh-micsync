@@ -1,8 +1,64 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">声屿</title>
-  <desc id="desc">三根圆头声波与一笔岛岸弧线，置于深海蓝圆角方形中。</desc>
-  <rect x="16" y="16" width="480" height="480" rx="144" fill="#203B50"/>
-  <g transform="translate(64 64) scale(16)" fill="none" stroke="#F0FAFA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M7.5 9.5v5M12 5.5v10M16.5 9.5v5M4.5 18c4.4 2.7 10.6 2.7 15 0"/>
+  <desc id="desc">透明玻璃球中，橙、紫、青色双峰音乐波形环绕成一座声岛。</desc>
+  <!-- Original vector artwork for Shengyu, drawn from the user's selected visual direction. -->
+  <defs>
+    <radialGradient id="glass" cx=".32" cy=".2" r=".88">
+      <stop stop-color="#fff" stop-opacity=".94"/>
+      <stop offset=".38" stop-color="#eef9ff" stop-opacity=".24"/>
+      <stop offset=".75" stop-color="#a4cce9" stop-opacity=".12"/>
+      <stop offset=".92" stop-color="#b1bee7" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#f5fbff" stop-opacity=".86"/>
+    </radialGradient>
+    <linearGradient id="rim" x1=".12" y1="0" x2=".82" y2="1">
+      <stop stop-color="#fff"/><stop offset=".26" stop-color="#99b4d7" stop-opacity=".72"/>
+      <stop offset=".53" stop-color="#eafaff"/><stop offset=".77" stop-color="#c5b8ec"/>
+      <stop offset="1" stop-color="#89c4d8" stop-opacity=".84"/>
+    </linearGradient>
+    <linearGradient id="warm" x1=".1" y1="0" x2=".84" y2="1">
+      <stop stop-color="#ffc461"/><stop offset=".36" stop-color="#fb8a45"/>
+      <stop offset=".74" stop-color="#d9699b"/><stop offset="1" stop-color="#9c6fd8"/>
+    </linearGradient>
+    <linearGradient id="violet" x1=".2" y1="0" x2=".75" y2="1">
+      <stop stop-color="#c9a0ff"/><stop offset=".4" stop-color="#9b69e2"/>
+      <stop offset=".78" stop-color="#7163ce"/><stop offset="1" stop-color="#707ee0"/>
+    </linearGradient>
+    <linearGradient id="aqua" x1=".1" y1=".9" x2=".9" y2=".2">
+      <stop stop-color="#627ed7"/><stop offset=".34" stop-color="#6db6ec"/>
+      <stop offset=".72" stop-color="#6ee4ef"/><stop offset="1" stop-color="#b4f4ee"/>
+    </linearGradient>
+    <linearGradient id="orbit" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#b597ed"/><stop offset=".3" stop-color="#8c96db"/>
+      <stop offset=".66" stop-color="#7dd1e2"/><stop offset="1" stop-color="#ffb77b"/>
+    </linearGradient>
+    <radialGradient id="bead" cx=".3" cy=".2" r=".86">
+      <stop stop-color="#fff"/><stop offset=".3" stop-color="#c2efff"/>
+      <stop offset=".72" stop-color="#91bbf0"/><stop offset="1" stop-color="#b4a1df"/>
+    </radialGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2=".4" y2="1">
+      <stop stop-color="#fff" stop-opacity=".9"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="shadow">
+      <stop stop-color="#6275ad" stop-opacity=".2"/><stop offset="1" stop-color="#6275ad" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="orbClip"><circle cx="256" cy="248" r="204"/></clipPath>
+  </defs>
+  <ellipse cx="256" cy="464" rx="178" ry="26" fill="url(#shadow)"/>
+  <circle cx="256" cy="248" r="204" fill="url(#glass)" stroke="url(#rim)" stroke-width="4"/>
+  <circle cx="256" cy="248" r="196" fill="none" stroke="#fff" stroke-opacity=".36" stroke-width="1.5"/>
+  <g clip-path="url(#orbClip)">
+    <ellipse cx="253" cy="253" rx="221" ry="77" transform="rotate(-21 253 253)" fill="none" stroke="url(#orbit)" stroke-width="5" opacity=".56"/>
+    <path d="M72 326C119 328 142 298 159 243C173 198 179 145 203 144C231 143 237 236 257 272C278 311 317 324 363 320L396 346C287 383 151 377 72 326Z" fill="url(#warm)"/>
+    <path d="M180 335C227 328 242 293 263 250C280 214 291 186 307 190C326 196 331 247 348 278C362 305 386 321 416 326C357 362 255 374 180 335Z" fill="url(#violet)"/>
+    <path d="M88 324C120 333 139 294 163 292C191 290 198 340 229 342C272 345 288 298 314 278C339 257 353 294 371 312C386 326 400 328 423 321C366 383 191 401 88 324Z" fill="url(#aqua)"/>
+    <path d="M91 326C126 336 140 299 163 298C189 295 201 345 231 347C272 351 293 302 316 284C340 265 354 300 372 317C386 330 402 333 420 325" fill="none" stroke="#d9ffff" stroke-opacity=".8" stroke-width="4" stroke-linecap="round"/>
+    <path d="M110 310C145 296 155 254 169 207C181 166 188 144 202 149C224 157 230 227 248 268" fill="none" stroke="#ffe2b5" stroke-opacity=".8" stroke-width="4" stroke-linecap="round"/>
+    <path d="M265 252C280 219 291 191 306 195C320 199 328 241 336 260" fill="none" stroke="#dfc3ff" stroke-opacity=".8" stroke-width="3" stroke-linecap="round"/>
+    <path d="M82 151C107 93 176 56 232 60C160 81 117 116 103 164C95 188 74 175 82 151Z" fill="url(#shine)"/>
+    <path d="M391 368C357 417 305 441 242 441" fill="none" stroke="#f2ffff" stroke-opacity=".76" stroke-width="8" stroke-linecap="round"/>
   </g>
+  <path d="M66 259C23 305 62 352 144 352C242 353 364 305 429 246C465 214 478 181 452 165" fill="none" stroke="url(#orbit)" stroke-width="6" stroke-linecap="round"/>
+  <path d="M67 264C30 307 71 347 147 347C242 349 363 301 425 244" fill="none" stroke="#f0fcff" stroke-opacity=".8" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="428" cy="179" r="15" fill="url(#bead)" stroke="#effbff" stroke-opacity=".8" stroke-width="1.5"/>
+  <ellipse cx="423" cy="174" rx="5" ry="3.5" transform="rotate(-28 423 174)" fill="#fff" opacity=".9"/>
 </svg>

@@ -21,7 +21,7 @@
   };
   const nodes = new Map(), assignments = new Map(), spatialNodes = new Map();
   const activeEdits = new WeakSet();
-  let state = { demo: requestedDemo, sourceName: '', sourceId: '', masterVolume: 0, isSourceMuted: false, status: '', devices: [] };
+  let state = { demo: requestedDemo, sourceName: '', sourceId: '', masterVolume: 0, isSourceMuted: false, isCalibrating: false, isTesting: false, testingDeviceId: null, audioBusy: false, status: '', devices: [] };
   let received = false, hostReceived = false, page = 'play', preset = 'whole', toastTimer = 0, previousAppearanceFocus = null;
   let readyTimer = 0, readyAttempts = 0, readySent = false;
   let currentDialog = null;
@@ -31,6 +31,8 @@
   const canOperate = () => Boolean(getBridge() && received) || (!hostReceived && requestedDemo);
   const source = device => device.isSystemDefault || (state.sourceId && device.id === state.sourceId);
   const calibrated = () => Boolean(state.isCalibrating);
+  const busy = () => Boolean(state.audioBusy || state.isTesting || calibrated());
+  const testing = device => state.isTesting && state.testingDeviceId === device.id;
   const getDevice = id => state.devices.find(device => device.id === id);
   const sourceProfile = profile => ({
     role: roleNames[profile?.role] ? profile.role : 'FullRange',
@@ -111,8 +113,9 @@
   }
   function send(message) {
     if (!canOperate()) { toast('网页尚未连接声屿应用。设备操作需在程序中使用。'); render(); return false; }
-    if (calibrated() && ['device', 'spatial', 'spatialBatch', 'master', 'mute'].includes(message.action)) {
-      toast('正在进行声音校准，请等校准结束后再调整。', true); render(); return false;
+    if (busy() && ['device', 'spatial', 'spatialBatch', 'master', 'mute', 'testDevice', 'setSource', 'calibrate'].includes(message.action)) {
+      toast(state.isTesting ? '正在试听，请先停止试听后再调整。' : calibrated() ? '正在进行声音校准，请等校准结束后再调整。' : '声音设备正在准备中，请稍候再调整。', true);
+      render(); return false;
     }
     // Native --ui-preview owns its own isolated demonstration state. Exercise the
     // real allowlisted bridge there; only a standalone browser simulates locally.
@@ -129,6 +132,22 @@
         state.devices.filter(output => source(output) || output.isConnected).forEach(output => { output.volume = state.masterVolume; });
         break;
       case 'mute': state.isSourceMuted = Boolean(message.value); break;
+      case 'testDevice':
+        if (!device) return;
+        state.isTesting = true; state.testingDeviceId = device.id; state.audioBusy = true;
+        toast('演示：正在展示「' + device.name + '」的试听状态，没有播放声音。');
+        break;
+      case 'stopDeviceTest':
+        state.isTesting = false; state.testingDeviceId = null; state.audioBusy = false;
+        toast('演示试听已停止。');
+        break;
+      case 'setSource':
+        if (!device || source(device)) return;
+        state.devices.forEach(output => { output.isSystemDefault = output.id === device.id; });
+        state.sourceId = device.id; state.sourceName = device.name;
+        state.masterVolume = device.volume;
+        toast('演示：已将「' + device.name + '」显示为主音源，没有修改 Windows 设置。');
+        break;
       case 'device':
         if (!device) return;
         if (source(device) && message.field !== 'volume' && message.field !== 'isFavorite') { toast('主音源直接由 Windows 播放，不能在转发链中处理。', true); return; }
@@ -172,6 +191,9 @@
       masterVolume: clamp(finite(incoming.masterVolume), 0, 100),
       isSourceMuted: incoming.isSourceMuted === true,
       isCalibrating: incoming.isCalibrating === true,
+      isTesting: incoming.isTesting === true,
+      testingDeviceId: typeof incoming.testingDeviceId === 'string' ? incoming.testingDeviceId : null,
+      audioBusy: incoming.audioBusy === true,
       status: typeof incoming.status === 'string' ? incoming.status : '',
       devices: incoming.devices.filter(device => device && typeof device.id === 'string').map(device => ({
         id: device.id, name: String(device.name || '未命名音箱'), kind: String(device.kind || '音频输出'),
@@ -184,6 +206,7 @@
       }))
     };
     render();
+    if (fromHost || !getBridge()) window.ShengyuStartup?.ready(fromHost ? 'host-ready' : 'demo-ready');
   }
   function makeDevice(device) {
     const card = $('#device-template').content.firstElementChild.cloneNode(true);
@@ -219,6 +242,14 @@
       const current = getDevice(device.id);
       if (current) send({ action: 'device', id: device.id, field: 'isFavorite', value: !current.isFavorite });
     });
+    card.querySelector('[data-device-action=test]').addEventListener('click', () => {
+      const current = getDevice(device.id);
+      if (current) send(testing(current) ? { action: 'stopDeviceTest' } : { action: 'testDevice', id: current.id });
+    });
+    card.querySelector('[data-device-action=set-source]').addEventListener('click', () => {
+      const current = getDevice(device.id);
+      if (current && !source(current)) send({ action: 'setSource', id: current.id });
+    });
     card.querySelectorAll('[data-step]').forEach(button => button.addEventListener('click', () => {
       const current = getDevice(device.id); if (!current || source(current)) return;
       const value = Math.round(clamp(finite(Number(delay.value), current.latencyMs) + Number(button.dataset.step), 0, 3000) * 10) / 10;
@@ -232,8 +263,9 @@
     $('#device-list').append(card); nodes.set(device.id, card); return card;
   }
   function updateDevice(device, card) {
-    const isSource = source(device), disabled = !canOperate() || calibrated();
+    const isSource = source(device), isTesting = testing(device), disabled = !canOperate() || busy();
     card.dataset.connected = String(device.isConnected || isSource); card.dataset.source = String(isSource);
+    card.dataset.testing = String(isTesting);
     showDeviceName(card.querySelector('.device-name'), device.name);
     card.querySelector('.source-chip').hidden = !isSource;
     card.querySelector('.device-subtitle').textContent = isSource ? 'Windows 主音源 · 原声直出' : device.kind + ' · ' + (device.isConnected ? '转发已开启' : '转发未开启');
@@ -244,6 +276,7 @@
     for (const input of card.querySelectorAll('[data-field]')) {
       const field = input.dataset.field;
       input.setAttribute('aria-label', device.name + ' · ' + ({ isConnected: '开启转发', volume: '音量', latencyMs: '延迟，毫秒', bassBoost: '低音增益', treble: '高音增益', isMono: '合并为单声道' }[field] || field));
+      if (disabled) activeEdits.delete(input);
       setInput(input, field === 'latencyMs' ? device[field].toFixed(1) : device[field]);
       input.disabled = disabled || (isSource && field !== 'volume');
       if (input.type === 'range') {
@@ -255,10 +288,23 @@
     card.querySelector('.delay-control').hidden = isSource;
     card.querySelector('.device-controls').style.gridTemplateColumns = isSource ? '1fr' : '';
     card.querySelector('.eq-button').disabled = disabled || isSource;
+    card.querySelector('.eq-button').hidden = isSource;
     if (isSource) card.querySelector('.eq-controls').hidden = true;
+    const testButton = card.querySelector('[data-device-action=test]');
+    testButton.querySelector('span').textContent = isTesting ? '停止试听' : '试听';
+    testButton.setAttribute('aria-pressed', String(isTesting));
+    testButton.setAttribute('aria-label', (isTesting ? '停止试听' : '试听') + ' · ' + device.name);
+    testButton.title = (isTesting ? '停止试听：' : '单独试听：') + device.name;
+    testButton.disabled = !canOperate() || (busy() && !isTesting);
+    iconUse(testButton, isTesting ? 'stop' : 'play');
+    const sourceButton = card.querySelector('[data-device-action=set-source]');
+    sourceButton.hidden = isSource;
+    sourceButton.disabled = disabled;
+    sourceButton.setAttribute('aria-label', '将' + device.name + '设为主音源');
+    sourceButton.title = '将「' + device.name + '」设为 Windows 默认播放设备';
     const sync = card.querySelector('.device-sync');
-    sync.textContent = isSource ? '原声由 Windows 直接播放' : device.syncStatusText || (device.isConnected ? '建议先完成声音同步' : '开启转发后加入播放');
-    sync.title = device.syncDetailsText;
+    sync.textContent = isTesting ? (requestedDemo || state.demo ? '演示试听 · 没有发声' : '正在试听 · 可随时停止') : isSource ? '原声由 Windows 直接播放' : device.syncStatusText || (device.isConnected ? '建议先完成声音同步' : '开启转发后加入播放');
+    sync.title = isTesting ? sync.textContent : device.syncDetailsText;
   }
   function makeAssignment(device) {
     const row = $('#preset-device-template').content.firstElementChild.cloneNode(true);
@@ -276,10 +322,11 @@
       const assignment = assignments.get(device.id) || makeAssignment(device);
       showDeviceName(assignment.row.querySelector('.preset-device-name'), device.name);
       assignment.row.querySelector('.preset-device-state').textContent = device.isConnected ? '转发已开启' : '请先在播放页开启转发';
-      const disabled = !device.isConnected || !canOperate() || calibrated();
+      const disabled = !device.isConnected || !canOperate() || busy();
       assignment.row.setAttribute('aria-disabled', String(disabled));
       assignment.check.disabled = disabled;
-      if (disabled) assignment.check.checked = false;
+      // Temporary audio work locks editing without erasing a chosen preset.
+      if (!device.isConnected || !canOperate()) assignment.check.checked = false;
       assignment.position.disabled = disabled;
       assignment.capability.disabled = disabled;
       assignment.check.setAttribute('aria-label', '选择' + device.name + '参与预设');
@@ -307,10 +354,15 @@
     return { chosen };
   }
   function updatePresetHint() {
+    if (busy()) {
+      $('#preset-hint').textContent = state.isTesting ? '试听结束后可以继续调整分工，已勾选的音箱会保留。' : '声音设备准备完成后可以继续调整分工，已勾选的音箱会保留。';
+      $('#apply-preset').disabled = true;
+      return;
+    }
     const validation = presetValidation();
     const count = validation.chosen.length;
     $('#preset-hint').textContent = validation.error || ('将更新 ' + count + ' 只音箱的分工。音量、开关与延迟保持原值。');
-    $('#apply-preset').disabled = Boolean(validation.error) || !canOperate() || calibrated();
+    $('#apply-preset').disabled = Boolean(validation.error) || !canOperate() || busy();
   }
   function selectPreset(value) {
     if (!presetInfo[value]) return;
@@ -360,7 +412,7 @@
     $('#spatial-devices').append(card); spatialNodes.set(device.id, card); return card;
   }
   function updateSpatial(device, card) {
-    const isSource = source(device), disabled = isSource || !canOperate() || calibrated();
+    const isSource = source(device), disabled = isSource || !canOperate() || busy();
     card.dataset.source = String(isSource);
     showDeviceName(card.querySelector('h3'), device.name);
     card.querySelector('.spatial-heading .caption').textContent = isSource ? '主音源 · 原声直出' : device.kind + ' · ' + roleNames[device.spatial.role];
@@ -381,12 +433,13 @@
     note.dataset.mode = demo ? 'demo' : getBridge() && hostReceived ? 'connected' : 'disconnected';
     note.textContent = demo ? '界面演示 · 使用示例音箱，所有调整仅影响演示数据' : getBridge() && hostReceived ? '已连接声屿应用 · 音箱状态由程序实时提供' : '独立网页尚未连接应用 · 设备操作不可用，可通过 ?demo=1 查看演示';
     showDeviceName($('#source-name'), state.sourceName || (received ? '尚未找到主音源' : '等待连接应用'));
-    $('#device-count').textContent = state.devices.length;
+    $('#device-count').textContent = state.devices.filter(device => source(device) || device.isConnected).length;
     $('#active-outputs').textContent = state.devices.filter(device => !source(device) && device.isConnected).length + ' 路转发';
-    $('#app-status').textContent = demo ? '界面演示 · 没有播放或录制声音' : state.status || (received ? '应用已连接' : '等待应用连接');
+    $('#app-status').textContent = demo ? (state.isTesting ? '界面演示 · 正在模拟试听，没有播放声音' : '界面演示 · 没有播放或录制声音') : state.status || (received ? '应用已连接' : '等待应用连接');
+    if (busy()) activeEdits.delete($('#master-volume'));
     $('#master-value').textContent = canOperate() ? (activeEdits.has($('#master-volume')) ? $('#master-volume').value : Math.round(state.masterVolume)) : '—';
-    setInput($('#master-volume'), state.masterVolume); $('#master-volume').disabled = !canOperate() || calibrated();
-    $('#master-mute').disabled = !canOperate() || calibrated();
+    setInput($('#master-volume'), state.masterVolume); $('#master-volume').disabled = !canOperate() || busy();
+    $('#master-mute').disabled = !canOperate() || busy();
     $('#master-mute').setAttribute('aria-pressed', String(state.isSourceMuted));
     $('#master-mute').setAttribute('aria-label', state.isSourceMuted ? '取消主音源静音' : '静音主音源');
     iconUse($('#master-mute'), state.isSourceMuted ? 'mute' : 'volume');
@@ -396,10 +449,39 @@
       updateDevice(device, nodes.get(device.id) || makeDevice(device));
       updateSpatial(device, spatialNodes.get(device.id) || makeSpatial(device));
     }
+    groupPlaybackDevices();
     $('#devices-empty').hidden = state.devices.length > 0;
     updateAssignments();
-    $$('[data-action]').forEach(button => { button.disabled = !canOperate() || (calibrated() && button.dataset.action === 'calibrate'); });
+    $$('[data-action]').forEach(button => { button.disabled = !canOperate() || (busy() && button.dataset.action === 'calibrate'); });
+    $$('[data-preset]').forEach(button => { button.disabled = busy(); });
     notifySurfaces();
+  }
+
+  function groupPlaybackDevices() {
+    const group = $('#inactive-devices'), focus = document.activeElement;
+    const focusedCard = focus?.closest('.device-card');
+    const primary = state.devices.filter(source);
+    const active = state.devices.filter(device => !source(device) && device.isConnected);
+    const inactive = state.devices.filter(device => !source(device) && !device.isConnected);
+    // Keep card instances and only move a node when its position changes. Routine
+    // host refreshes must not interrupt keyboard focus or unfinished input edits.
+    for (const [container, devices] of [[$('#device-list'), [...primary, ...active]], [$('#inactive-device-list'), inactive]]) {
+      let cursor = container.firstElementChild;
+      for (const device of devices) {
+        const card = nodes.get(device.id);
+        if (card !== cursor) container.insertBefore(card, cursor);
+        cursor = card.nextElementSibling;
+      }
+    }
+    group.hidden = inactive.length === 0;
+    $('#inactive-device-count').textContent = inactive.length;
+    if (focusedCard && focus.isConnected) {
+      if (!group.open && $('#inactive-device-list').contains(focusedCard)) $('#inactive-devices-summary').focus({ preventScroll: true });
+      else if (document.activeElement !== focus) focus.focus({ preventScroll: true });
+    } else if (group.hidden && group.contains(focus)) {
+      $('#devices-heading').setAttribute('tabindex', '-1');
+      $('#devices-heading').focus({ preventScroll: true });
+    }
   }
 
   function navigate(target, updateHash = true) {
@@ -482,6 +564,10 @@
   }));
   $$('[data-preset]').forEach(button => button.addEventListener('click', () => selectPreset(button.dataset.preset)));
   $('#apply-preset').addEventListener('click', applyPreset);
+  $('#inactive-devices').addEventListener('toggle', () => {
+    $('#inactive-devices .inactive-devices-hint').textContent = $('#inactive-devices').open ? '收起' : '展开后可开启';
+    notifySurfaces();
+  });
   trackEditing($('#master-volume'));
   $('#master-volume').addEventListener('input', event => { $('#master-value').textContent = event.target.value; setRangePaint(event.target); });
   $('#master-volume').addEventListener('change', event => send({ action: 'master', value: event.target.valueAsNumber }));
@@ -511,7 +597,7 @@
   window.shengyuMessage = hostMessage;
   window.ShengyuUI = Object.freeze({
     getState: () => structuredClone(state),
-    inspect: () => ({ page, preset, demo: requestedDemo || state.demo, received, hostReceived, bridgeLive: Boolean(getBridge()), canOperate: canOperate(),
+    inspect: () => ({ page, preset, demo: requestedDemo || state.demo, received, hostReceived, bridgeLive: Boolean(getBridge()), canOperate: canOperate(), audioBusy: busy(),
       selected: Array.from(assignments).filter(([, entry]) => entry.check.checked).map(([id]) => id),
       storagePrefix: appearance.prefix, deviceCount: nodes.size, diyCount: $$('[data-glass-setting]').length,
       activeGlass: $$('[data-glass-optical][data-liquid-glass]').length })
@@ -523,6 +609,7 @@
     { id: 'demo-right', name: '沙发旁音箱', kind: '蓝牙音频', isConnected: true, volume: 45, latencyMs: 83.2, syncStatusText: '演示延迟 · 未实测', spatial: initialSpatial() },
     { id: 'demo-extra', name: '备用音箱', kind: '有线音频', isConnected: false, volume: 38, latencyMs: 0, syncStatusText: '转发未开启', spatial: initialSpatial() }
   ] }, false); else render();
+  if (!getBridge()) window.ShengyuStartup?.ready('standalone-ready');
   function ready() {
     if (readySent) return;
     const bridge = getBridge();

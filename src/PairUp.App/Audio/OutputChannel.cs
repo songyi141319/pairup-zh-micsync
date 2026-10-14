@@ -32,16 +32,24 @@ public sealed class OutputChannel : IDisposable
         _volumeProvider = new VolumeSampleProvider(_processingProvider) { Volume = 0.75f };
 
         _output = new WasapiOut(device, AudioClientShareMode.Shared, true, ChooseLatencyMs(device));
-        _output.Init(_volumeProvider);
-        // MMDevice.AudioClient activates a NEW client each time. Inspect the initialized
-        // renderer's client instead; the pinned NAudio 2.2.1 has no public accessor.
         try
         {
-            _renderClient = typeof(WasapiOut).GetField("audioClient",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(_output) as AudioClient;
+            _output.Init(_volumeProvider);
+            // MMDevice.AudioClient activates a NEW client each time. Inspect the initialized
+            // renderer's client instead; the pinned NAudio 2.2.1 has no public accessor.
+            try
+            {
+                _renderClient = typeof(WasapiOut).GetField("audioClient",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(_output) as AudioClient;
+            }
+            catch { _renderClient = null; }
+            _output.Play();
         }
-        catch { _renderClient = null; }
-        _output.Play();
+        catch
+        {
+            try { _output.Dispose(); } catch { /* Preserve the opening failure. */ }
+            throw;
+        }
     }
 
     /// <summary>
@@ -168,7 +176,7 @@ public sealed class OutputChannel : IDisposable
 
     public void Dispose()
     {
-        _output.Stop();
-        _output.Dispose();
+        try { _output.Stop(); }
+        finally { _output.Dispose(); }
     }
 }

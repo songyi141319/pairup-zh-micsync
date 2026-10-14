@@ -1,0 +1,66 @@
+/* A finite loading state, with a repeating 3-second ripple only while waiting. */
+.app-startup {
+  position:fixed;
+  inset:0;
+  z-index:1000;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  background:radial-gradient(ellipse at 50% 42%,#f8fcff,#eef2f8 66%,#e9eef6);
+  color:#243448;
+}
+[data-theme=dark] .app-startup {
+  background:radial-gradient(ellipse at 50% 42%,#263448,#151e2c 66%,#111724);
+  color:#edf4ff;
+}
+.startup-content {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding:32px;
+  text-align:center;
+}
+.startup-art {
+  position:relative;
+  display:grid;
+  place-items:center;
+  width:min(320px,75vw);
+  aspect-ratio:1;
+  isolation:isolate;
+}
+.startup-logo { position:relative; width:78%; height:78%; z-index:1; }
+.startup-ripple {
+  position:absolute;
+  inset:32% 12%;
+  border:1.4px solid #8ba7d9;
+  border-radius:50%;
+  opacity:0;
+  transform:translateY(43px) scale(.62);
+  box-shadow:0 1px 1px #fff9 inset,0 -1px 1px #b7c9e344;
+  animation:shengyu-ripple 3s cubic-bezier(.16,.55,.35,1) infinite;
+  pointer-events:none;
+}
+.startup-ripple:nth-of-type(2) { animation-delay:-1s; border-color:#a8a4db; }
+.startup-ripple:nth-of-type(3) { animation-delay:-2s; border-color:#8ecdd6; }
+.startup-content h1 { margin:0; font-size:29px; letter-spacing:.22em; padding-left:.22em; font-weight:620; }
+.startup-content p { margin:9px 0 0; font-size:13px; color:#56677c; }
+[data-theme=dark] .startup-content p { color:#bbcce0; }
+.startup-content .startup-message { margin-top:25px; font-size:12px; }
+@keyframes shengyu-ripple {
+  0% { transform:translateY(43px) scale(.62); opacity:0; }
+  18% { opacity:.5; }
+  100% { transform:translateY(43px) scale(1.5); opacity:0; }
+}
+[data-motion-active=off] .startup-ripple { animation:none; opacity:.22; transform:translateY(43px) scale(1); }
+[data-motion-active=off] .startup-ripple:nth-of-type(2) { transform:translateY(43px) scale(1.2); opacity:.13; }
+[data-motion-active=off] .startup-ripple:nth-of-type(3) { display:none; }
+@media(prefers-reduced-motion:reduce) {
+  .startup-ripple { animation:none; opacity:.22; transform:translateY(43px) scale(1); }
+  .startup-ripple:nth-of-type(2) { transform:translateY(43px) scale(1.2); opacity:.13; }
+  .startup-ripple:nth-of-type(3) { display:none; }
+}
+@media(forced-colors:active) {
+  .app-startup,[data-theme=dark] .app-startup { background:Canvas; color:CanvasText; }
+  .startup-content p,[data-theme=dark] .startup-content p { color:CanvasText; }
+  .startup-ripple { display:none; }
+}

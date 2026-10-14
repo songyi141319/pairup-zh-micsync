@@ -2,7 +2,23 @@ using System.Numerics;
 
 namespace PairUp.App.Audio;
 
-public sealed record ProbeMatch(double OffsetMs, double Confidence, bool IsReliable, string Reason);
+public enum ProbeFailureKind
+{
+    None,
+    InvalidRecording,
+    InsufficientRecording,
+    WeakSignal,
+    UnrecognizedWeakSignal,
+    UnrecognizedSignal,
+    AmbiguousSignal,
+    Clipped
+}
+
+public sealed record ProbeMatch(double OffsetMs, double Confidence, bool IsReliable, string Reason,
+    ProbeFailureKind FailureKind = ProbeFailureKind.None)
+{
+    public bool CanRetryAtHigherVolume => FailureKind is ProbeFailureKind.WeakSignal or ProbeFailureKind.UnrecognizedWeakSignal;
+}
 
 /// <summary>Original normalized FFT correlation implementation; no external analysis code is copied.</summary>
 public static class AcousticDelayEstimator
@@ -43,13 +59,20 @@ public static class AcousticDelayEstimator
     public static ProbeMatch Find(float[] recording, int sampleRate, double minimumMs = 0, double maximumMs = 5000)
     {
         if (sampleRate < 8000 || recording.Length == 0 || recording.Any(x => !float.IsFinite(x)))
-            return new(0, 0, false, "录音数据无效");
+            return new(0, 0, false, "录音数据无效", ProbeFailureKind.InvalidRecording);
         var rawInput = Resample(recording, sampleRate, AnalysisRate);
         var input = RemoveOutOfBandNoise(rawInput);
         var probe = CreateProbe(AnalysisRate);
         var first = Math.Max(0, (int)(minimumMs * AnalysisRate / 1000));
         var last = Math.Min(input.Length - probe.Length, (int)(maximumMs * AnalysisRate / 1000));
-        if (last < first) return new(0, 0, false, "录音时间不足");
+        if (last < first) return new(0, 0, false, "录音时间不足", ProbeFailureKind.InsufficientRecording);
+
+        // Check original-rate samples before any weak-signal return. Otherwise clipped noise
+        // outside the sweep band could look quiet after filtering and incorrectly raise volume.
+        var originalFirst = (int)Math.Round(first * (double)sampleRate / AnalysisRate);
+        var originalEnd = Math.Min(recording.Length, (int)Math.Ceiling((last + probe.Length) * (double)sampleRate / AnalysisRate));
+        if (HasClipping(recording, originalFirst, originalEnd, sampleRate))
+            return new(0, 0, false, "录音过响失真，请降低音量或调整麦克风位置后再测", ProbeFailureKind.Clipped);
 
         var length = 1;
         while (length < input.Length + probe.Length - 1) length <<= 1;
@@ -84,25 +107,35 @@ public static class AcousticDelayEstimator
             scores[i - first] = score;
             if (score > best) { best = score; bestIndex = i; }
         }
-        if (best < 0.24) return new(0, best, false, "没有清楚收到测试音，请检查音箱和麦克风音量");
+        if (best < 0.24)
+        {
+            // Only quiet, valid captures qualify for automatic gain escalation. Strong noise
+            // with no identifiable sweep needs human/environment checks, not louder playback.
+            var searchEnergy = 0.0;
+            var searchPeak = 0.0;
+            var searchEnd = last + probe.Length;
+            for (var i = first; i < searchEnd; i++)
+            {
+                var value = input[i];
+                searchEnergy += value * value;
+                searchPeak = Math.Max(searchPeak, Math.Abs(value));
+            }
+            var quiet = searchPeak < 0.01 && Math.Sqrt(searchEnergy / (searchEnd - first)) < 0.003;
+            return new(0, best, false, quiet ? "收到的声音很弱，尚未识别到清楚的测试音" : "有明显声音，但未识别到清楚的测试音，请检查噪声、音箱和麦克风位置",
+                quiet ? ProbeFailureKind.UnrecognizedWeakSignal : ProbeFailureKind.UnrecognizedSignal);
+        }
         var second = 0.0;
         for (var i = first; i <= last; i++)
             // Only exclude the sweep's narrow autocorrelation main lobe, not room-scale echoes.
             if (Math.Abs(i - bestIndex) > AnalysisRate * 0.002) second = Math.Max(second, scores[i - first]);
-        if (second >= best * 0.88) return new(0, best, false, "收到多个难以区分的测试音或较强回声，请让环境安静后重测");
+        if (second >= best * 0.88) return new(0, best, false, "收到多个难以区分的测试音或较强回声，请让环境安静后重测", ProbeFailureKind.AmbiguousSignal);
         var peak = 0.0;
         for (var i = bestIndex; i < bestIndex + probe.Length; i++)
             peak = Math.Max(peak, Math.Abs(input[i]));
         // Separate matched-probe strength from background noise in the same window.
         var matchedAmplitude = Math.Abs(signalSpectrum[bestIndex + probe.Length - 1].Real) / probeEnergy * 0.10;
-        if (peak < 0.0003 || matchedAmplitude < 0.0003) return new(0, best, false, "测试音过小，无法可靠校准");
-        // Examine every original frame: analysis-rate decimation must not hide clipping.
-        var originalFirst = (int)Math.Round(bestIndex * (double)sampleRate / AnalysisRate);
-        var originalCount = Math.Min(recording.Length - originalFirst, (int)Math.Round(ProbeDurationSeconds * sampleRate));
-        var clipped = 0;
-        for (var i = originalFirst; i < originalFirst + originalCount; i++)
-            if (Math.Abs(recording[i]) >= 0.995) clipped++;
-        if (clipped > originalCount * 0.02) return new(0, best, false, "麦克风录音过响失真，请降低麦克风音量再测");
+        if (peak < 0.0003 || matchedAmplitude < 0.0003)
+            return new(0, best, false, "测试音过小，无法可靠校准", ProbeFailureKind.WeakSignal);
 
         var fraction = 0.0;
         var index = bestIndex - first;
@@ -113,6 +146,19 @@ public static class AcousticDelayEstimator
             if (Math.Abs(denominator) > 1e-12) fraction = Math.Clamp(0.5 * (a - c) / denominator, -0.5, 0.5);
         }
         return new((bestIndex + fraction) * 1000 / AnalysisRate, best, true, "测试音清楚");
+    }
+
+    internal static bool HasClipping(float[] recording, int first, int end, int sampleRate)
+    {
+        var window = Math.Max(1, (int)Math.Round(ProbeDurationSeconds * sampleRate));
+        var clipped = 0;
+        for (var i = first; i < end; i++)
+        {
+            if (Math.Abs(recording[i]) >= 0.995) clipped++;
+            if (i - first >= window && Math.Abs(recording[i - window]) >= 0.995) clipped--;
+            if (clipped > window * 0.02) return true;
+        }
+        return false;
     }
 
     private static float[] RemoveOutOfBandNoise(float[] input)

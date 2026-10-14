@@ -1,10 +1,10 @@
-// Convert our original vector mark to Windows multi-size icons. No desktop UI.
+// Encode the approved glass-wave logo as Windows multi-size icons. No desktop UI.
 const fs = require('node:fs');
 const path = require('node:path');
 const sharp = require('sharp');
 (async () => {
   const root = path.resolve(__dirname, '../../src/PairUp.App');
-  const svg = fs.readFileSync(path.join(root, 'Web/assets/shengyu-app-icon.svg'));
+  const svg = fs.readFileSync(path.join(root, 'Web/assets/shengyu-glass-logo.png'));
   const sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
   const images = await Promise.all(sizes.map(size => sharp(svg).resize(size, size).png().toBuffer()));
   const header = Buffer.alloc(6 + 16 * sizes.length);
@@ -20,5 +20,5 @@ const sharp = require('sharp');
   fs.writeFileSync(path.join(root, 'app.ico'), Buffer.concat([header, ...images]));
   fs.mkdirSync(path.join(root, 'Assets'), { recursive: true });
   await sharp(svg).resize(512, 512).png().toFile(path.join(root, 'Assets/shengyu.png'));
-  console.log('Original 声屿 mark exported at ' + sizes.join(', ') + ' px; no desktop window opened.');
+  console.log('Approved 声屿 glass mark exported at ' + sizes.join(', ') + ' px; no desktop window opened.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

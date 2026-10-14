@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 
 namespace PairUp.App;
@@ -9,49 +10,43 @@ public partial class SplashWindow : Window
     {
         InitializeComponent();
         Loaded += (_, _) => StartAnimation();
+        Closed += (_, _) => StopAnimation();
     }
 
     private void StartAnimation()
     {
-        var popIn = new DoubleAnimation
+        if (!SystemParameters.ClientAreaAnimation) return;
+        var rings = new[] { RippleOne, RippleTwo, RippleThree };
+        for (var i = 0; i < rings.Length; i++)
         {
-            From = 0.7,
-            To = 1.0,
-            Duration = TimeSpan.FromMilliseconds(450),
-            EasingFunction = new BackEase { Amplitude = 0.6, EasingMode = EasingMode.EaseOut }
-        };
-        LogoScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, popIn);
-        LogoScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, popIn);
+            var begin = TimeSpan.FromSeconds(i);
+            var expand = new DoubleAnimation(0.25, 1.18, TimeSpan.FromSeconds(3))
+            {
+                BeginTime = begin, RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseOut }
+            };
+            var scale = (ScaleTransform)rings[i].RenderTransform;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, expand);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, expand);
+            var fade = new DoubleAnimationUsingKeyFrames
+            {
+                Duration = TimeSpan.FromSeconds(3), BeginTime = begin, RepeatBehavior = RepeatBehavior.Forever
+            };
+            fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(0)));
+            fade.KeyFrames.Add(new LinearDoubleKeyFrame(0.5, KeyTime.FromPercent(0.18)));
+            fade.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(1)));
+            rings[i].BeginAnimation(OpacityProperty, fade);
+        }
+    }
 
-        var wordFade = new DoubleAnimation
+    private void StopAnimation()
+    {
+        foreach (var ring in new[] { RippleOne, RippleTwo, RippleThree })
         {
-            From = 0, To = 1,
-            Duration = TimeSpan.FromMilliseconds(400),
-            BeginTime = TimeSpan.FromMilliseconds(200)
-        };
-        Wordmark.BeginAnimation(OpacityProperty, wordFade);
-
-        var wordRise = new DoubleAnimation
-        {
-            From = 8, To = 0,
-            Duration = TimeSpan.FromMilliseconds(400),
-            BeginTime = TimeSpan.FromMilliseconds(200),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        WordmarkOffset.BeginAnimation(System.Windows.Media.TranslateTransform.YProperty, wordRise);
-
-        // Gentle continuous "breathing" pulse for as long as the splash stays on screen.
-        var breathe = new DoubleAnimation
-        {
-            From = 1.0,
-            To = 1.06,
-            Duration = TimeSpan.FromMilliseconds(900),
-            BeginTime = TimeSpan.FromMilliseconds(650),
-            AutoReverse = true,
-            RepeatBehavior = RepeatBehavior.Forever,
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
-        };
-        LogoScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleXProperty, breathe);
-        LogoScale.BeginAnimation(System.Windows.Media.ScaleTransform.ScaleYProperty, breathe);
+            ring.BeginAnimation(OpacityProperty, null);
+            var scale = (ScaleTransform)ring.RenderTransform;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        }
     }
 }

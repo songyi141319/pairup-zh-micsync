@@ -72,6 +72,26 @@ public sealed class AudioCaptureEngine : IDisposable
         catch { IsCapturing = false; throw; }
     }
 
+    /// <summary>
+    /// Explicit source selection starts a new format contract. Ordinary reconnects still
+    /// retain their source and reject format changes in Start(). Call without an engine lock:
+    /// disposing the native capture waits for its DataAvailable callback to finish.
+    /// </summary>
+    public void ChangeSource(string? deviceId)
+    {
+        if (deviceId is not null && string.IsNullOrWhiteSpace(deviceId))
+            throw new ArgumentException("请选择有效的主音源。", nameof(deviceId));
+        Stop();
+        var previousCapture = _capture;
+        var previousDevice = _sourceDevice;
+        _capture = null;
+        _sourceDevice = null;
+        try { previousCapture?.Dispose(); }
+        finally { previousDevice?.Dispose(); }
+        SourceDeviceId = deviceId;
+        _sourceFormat = null;
+    }
+
     public static bool SameCaptureFormat(WaveFormat a, WaveFormat b) =>
         a.Encoding == b.Encoding && a.SampleRate == b.SampleRate && a.Channels == b.Channels &&
         a.BitsPerSample == b.BitsPerSample && a.BlockAlign == b.BlockAlign &&

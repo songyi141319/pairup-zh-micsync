@@ -55,6 +55,13 @@ public partial class MainWindow : Window
         };
         Closing += (_, e) =>
         {
+            if (_devicePreviewCancellation is not null)
+            {
+                e.Cancel = true;
+                _exitAfterDevicePreview = true;
+                _devicePreviewCancellation.Cancel();
+                return;
+            }
             if (_acousticCalibrationWindow?.IsMeasuring != true) return;
             // A normal tray/external exit must finish restoring Windows audio before disposal.
             e.Cancel = true;
@@ -164,7 +171,7 @@ public partial class MainWindow : Window
     private void SyncWindowsVolumes(bool followSourceChanges = true, bool resetSourceBaseline = false)
     {
         if (_uiPreview) return;
-        if (_isRestoringSettings || _audioEngine.IsCalibrating) return;
+        if (_isRestoringSettings || AudioBusy) return;
         var sourceId = _audioEngine.SourceDeviceId ?? _viewModel.DefaultDevice?.Id;
         var ids = _viewModel.Devices.Select(d => d.Id).ToList();
         if (sourceId is not null) ids.Add(sourceId);
@@ -209,6 +216,7 @@ public partial class MainWindow : Window
     {
         if (_uiPreview) return;
         var checkbox = (CheckBox)sender;
+        if (AudioBusy) { checkbox.IsChecked = _viewModel.IsSourceMuted; return; }
         if (!_audioEngine.TrySetSourceMuted(checkbox.IsChecked == true))
         {
             checkbox.IsChecked = !checkbox.IsChecked; // revert — no source device available yet
@@ -452,7 +460,8 @@ public partial class MainWindow : Window
 
     private void SaveSettings()
     {
-        if (_uiPreview) return;
+        if (_uiPreview || _devicePreviewCancellation is not null ||
+            (_acousticCalibrationWindow?.IsMeasuring == true && (!_isRestoringSettings || _audioEngine.IsCalibrating))) return;
         var settings = _viewModel.Devices.Select(d =>
             new DeviceSettings(d.Id, d.IsConnected, d.Volume, d.LatencyMs, d.IsFavorite,
                 d.BassBoost, d.Treble, d.IsMono, d.Spatial));
@@ -462,6 +471,13 @@ public partial class MainWindow : Window
     private void MasterVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_uiPreview || _isRestoringSettings || _reflectingWindowsVolume) return;
+        if (AudioBusy)
+        {
+            _reflectingWindowsVolume = true;
+            try { _viewModel.MasterVolume = e.OldValue; }
+            finally { _reflectingWindowsVolume = false; }
+            return;
+        }
 
         if (!_audioEngine.SetMasterVolume(e.NewValue))
         {
@@ -502,7 +518,7 @@ public partial class MainWindow : Window
         if (sender is not AudioDeviceInfo device) return;
         if (_reflectingWindowsVolume) return;
         if (_rejectingCalibrationChanges) return;
-        if (!_isRestoringSettings && _acousticCalibrationWindow?.IsMeasuring == true && _acousticDeviceSnapshot?.TryGetValue(device.Id, out var original) == true)
+        if (!_isRestoringSettings && AudioBusy && _acousticDeviceSnapshot?.TryGetValue(device.Id, out var original) == true)
         {
             // Tray and sharing controls must not alter the measured routing or effects mid-run.
             _rejectingCalibrationChanges = true;
@@ -517,6 +533,7 @@ public partial class MainWindow : Window
                     case nameof(AudioDeviceInfo.Treble): device.Treble = original.Treble; return;
                     case nameof(AudioDeviceInfo.IsMono): device.IsMono = original.IsMono; return;
                     case nameof(AudioDeviceInfo.Spatial): device.Spatial = original.Spatial ?? new(); return;
+                    case nameof(AudioDeviceInfo.IsFavorite): device.IsFavorite = original.IsFavorite; return;
                 }
             }
             finally { _rejectingCalibrationChanges = false; }
@@ -630,7 +647,7 @@ public partial class MainWindow : Window
 
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
-        if (_uiPreview) return;
+        if (_uiPreview || AudioBusy) return;
         var button = (Button)sender;
         var originalContent = button.Content;
         button.IsEnabled = false;
@@ -639,12 +656,18 @@ public partial class MainWindow : Window
         // LoadDevices runs synchronously on the UI thread (WASAPI enumeration needs the STA
         // thread), so without yielding here the "Refreshing…" label would never actually paint —
         // the whole operation would complete within a single frame.
-        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
-
-        LoadDevices();
-
-        button.Content = originalContent;
-        button.IsEnabled = true;
+        try
+        {
+            await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
+            // A queued audition/calibration may have started while the UI painted.
+            if (!AudioBusy) LoadDevices();
+        }
+        catch (Exception ex) { _viewModel.StatusText = "刷新设备未完成：" + ex.Message; }
+        finally
+        {
+            button.Content = originalContent;
+            button.IsEnabled = true;
+        }
     }
 
     private void DelayInput_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -667,7 +690,7 @@ public partial class MainWindow : Window
 
     private void MicrophoneCalibration_Click(object sender, RoutedEventArgs e)
     {
-        if (_uiPreview) return;
+        if (_uiPreview || AudioBusy) return;
         _calibrator.Stop();
         CalibratePopup.IsOpen = false;
         var window = new AcousticCalibrationWindow(_audioEngine, _viewModel.Devices, ApplyAcousticDelays) { Owner = this };
@@ -734,7 +757,7 @@ public partial class MainWindow : Window
 
     private void CalibrateStart_Click(object sender, RoutedEventArgs e)
     {
-        if (_uiPreview) return;
+        if (_uiPreview || AudioBusy) return;
         if (_calibratingDevice is null) return;
 
         try

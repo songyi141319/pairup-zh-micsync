@@ -763,6 +763,14 @@ h3{
 .number-stepper input:focus{
   outline:0
 }
+.inactive-devices{margin-top:18px;border-top:1px solid var(--line);padding-top:8px;}
+.inactive-devices>summary{display:flex;align-items:center;gap:12px;min-height:52px;cursor:pointer;font-size:14px;color:var(--ink);list-style:none;}
+.inactive-devices>summary::-webkit-details-marker{display:none;}
+.inactive-devices>summary::before{content:'›';font-size:22px;line-height:1;}
+.inactive-devices[open]>summary::before{transform:rotate(90deg);}
+.inactive-devices>summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:10px;}
+.inactive-devices-hint{margin-left:auto;font-size:12px;color:var(--muted);}
+.inactive-devices>.caption{margin:0 0 14px;}
 .device-bottom{
   display:flex;
   justify-content:space-between;
@@ -3089,9 +3097,6 @@ select{
   .device-card[data-source=true] .device-controls{
     margin-top:5px
   }
-  .device-card[data-source=true] .device-bottom{
-    display:none
-  }
   .device-card[data-source=true] .volume-control{
     display:flex;
     align-items:center;
@@ -3166,28 +3171,62 @@ select{
     display:none
   }
 }
-/* The brand shares a 24-unit round-stroke grid with the interface symbols. */
+/* The static identity keeps the approved glass orb and its two musical peaks. */
 .brand-mark {
-  width:42px;
-  height:42px;
-  border-radius:13px;
-  background:#203b50;
-  color:#f0fafa;
-  border:1px solid #ffffff1f;
-  box-shadow:0 4px 12px #203b5014;
-}
-.brand-mark svg {
-  width:30px;
-  height:30px;
-  stroke-width:1.8;
+  width:52px;
+  height:52px;
+  flex:none;
+  border:0;
+  border-radius:0;
+  background:none;
+  box-shadow:none;
 }
 [data-theme=dark] .brand-mark {
-  background:#e9f1f7;
-  color:#203b50;
-  border-color:#ffffff24;
+  background:none;
+}
+.brand-mark img {
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:contain;
 }
 .symbol-library + svg, .nav-item svg, .icon-button svg, .device-icon svg {
   stroke-width:1.7;
+}
+.device-bottom {
+  flex-wrap:wrap;
+  gap:4px 12px;
+}
+.device-actions {
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap:wrap;
+  gap:2px 8px;
+  margin-left:auto;
+}
+.device-actions .text-button {
+  min-height:34px;
+  padding:4px 6px;
+  border-radius:10px;
+  font-size:12px;
+  gap:5px;
+  white-space:nowrap;
+  color:var(--adaptive-ink,var(--ink));
+}
+.device-actions .text-button svg { width:15px; height:15px; }
+.device-actions .text-button:hover:not(:disabled) { background:var(--soft-fill); }
+.device-actions .device-test-button[aria-pressed=true] {
+  background:var(--soft-fill);
+  box-shadow:0 0 0 1px var(--line) inset;
+  font-weight:620;
+}
+.device-card[data-testing=true] .device-sync::before { background:var(--adaptive-ink,var(--ink)); }
+@media(max-width:560px) {
+  .device-bottom { align-items:center; }
+  .device-sync { flex-basis:100%; padding-block:2px; }
+  .device-actions { width:100%; justify-content:flex-start; margin-left:0; gap:2px 6px; }
+  .device-actions .text-button { min-height:40px; }
 }
 /* Endpoint names come from the host in full. Let names take vertical space
    instead of clipping or substituting room aliases for real device names. */

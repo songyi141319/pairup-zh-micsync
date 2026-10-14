@@ -256,6 +256,16 @@
                 </Grid>
 
                 <!-- Per-device audio processing: EQ + mono downmix, collapsed by default -->
+                <WrapPanel Margin="18,8,4,0">
+                    <Button Content="试听 / 停止" Click="PreviewDevice_Click" Padding="10,5" Margin="0,0,8,0" ToolTip="按当前音量单独播放短铃声；再点停止"/>
+                    <Button Content="设为主音源" Click="SetMainSource_Click" Padding="10,5" ToolTip="切换 Windows 音乐默认输出，并重新连接其他音箱">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Style.Triggers><DataTrigger Binding="{Binding IsSystemDefault}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </WrapPanel>
                 <Border Visibility="{Binding IsProcessingExpanded, Converter={StaticResource BoolToVisibility}}"
                         Background="{DynamicResource BgBrush}" CornerRadius="8"
                         Margin="18,10,4,0" Padding="18,14">

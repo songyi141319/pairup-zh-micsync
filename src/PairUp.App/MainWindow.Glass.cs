@@ -165,6 +165,8 @@ public partial class MainWindow
             sourceId = _viewModel.DefaultDevice?.Id, masterVolume = _viewModel.MasterVolume,
             isSourceMuted = _viewModel.IsSourceMuted, status = _viewModel.StatusText,
             isCalibrating = _acousticCalibrationWindow?.IsMeasuring == true,
+            isTesting = _devicePreviewCancellation is not null, testingDeviceId = _testingDeviceId,
+            audioBusy = AudioBusy,
             devices = _viewModel.Devices.Select(d => new
             {
                 id = d.Id, name = d.Name, kind = d.KindDisplayName, isConnected = d.IsConnected,
@@ -196,12 +198,19 @@ public partial class MainWindow
             if (action == "close") { if (_uiPreview) Close(); else WindowState = WindowState.Minimized; return; }
             if (action == "exit") { Close(); return; }
             if (action == "legacy") { ShowGlass(false); return; }
-            if (_acousticCalibrationWindow?.IsMeasuring == true || _audioEngine.IsCalibrating)
-                throw new InvalidOperationException("正在校准，请等待结束后再调整。");
+            if (action == "stopDeviceTest") { _devicePreviewCancellation?.Cancel(); return; }
+            if (AudioBusy)
+                throw new InvalidOperationException("正在试听、校准或切换音源，请等待结束后再调整。");
             AudioDeviceInfo Device(JsonElement item) => _viewModel.Devices.SingleOrDefault(d => d.Id == item.GetProperty("id").GetString())
                 ?? throw new InvalidOperationException("设备列表已改变，请刷新后再试。");
             switch (action)
             {
+                case "testDevice":
+                    await PreviewDeviceAsync(Device(data));
+                    break;
+                case "setSource":
+                    await ChangeMainSourceAsync(Device(data));
+                    break;
                 case "master":
                     var volume = Number(data.GetProperty("value"), 0, 100);
                     if (_uiPreview) foreach (var d in _viewModel.Devices.Where(d => d.IsConnected || d.IsSystemDefault)) d.Volume = volume;

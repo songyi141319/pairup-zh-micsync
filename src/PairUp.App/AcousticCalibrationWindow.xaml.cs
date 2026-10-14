@@ -88,9 +88,9 @@ public partial class AcousticCalibrationWindow : Window
         ProgressBar.Visibility = Visibility.Visible;
         _cancel = new CancellationTokenSource();
         var progress = new Progress<string>(text => StatusText.Text = text);
+        var service = new AcousticCalibrator(_engine);
         try
         {
-            var service = new AcousticCalibrator(_engine);
             _report = await Task.Run(() => service.MeasureAsync(microphone.DeviceId, selected, progress, _cancel.Token));
             // Cancellation can arrive while the service is restoring Windows audio state.
             _cancel.Token.ThrowIfCancellationRequested();
@@ -105,10 +105,11 @@ public partial class AcousticCalibrationWindow : Window
             text.AppendLine(_report.Plan.Explanation);
             ResultsText.Text = text.ToString();
             ApplyButton.IsEnabled = _report.Plan.CanApply;
-            StatusText.Text = _report.Plan.CanApply ? "测量完成，音乐和原播放状态已恢复。" : "测量完成，当前条件无法自动对齐，原延迟已保留。";
-            if (_report.Plan.CanApply && AutoApplyCheck.IsChecked == true) ApplyResults();
+            StatusText.Text = _report.Plan.CanApply ? "测量完成，原音量、静音和播放状态已恢复。" : "测量完成，当前条件无法自动对齐，原音量、静音和延迟已恢复。";
+            if (_report.Plan.CanApply && AutoApplyCheck.IsChecked == true &&
+                service.RestorationWarning is null && _engine.CalibrationRestoreWarning is null) ApplyResults();
         }
-        catch (OperationCanceledException) { StatusText.Text = "已取消测量，原播放状态和延迟已恢复。"; }
+        catch (OperationCanceledException) { StatusText.Text = "已取消测量，原音量、静音和延迟已恢复。"; }
         catch (Exception ex)
         {
             StatusText.Text = "校准未完成，未应用新的延迟。原因见下方：";
@@ -116,7 +117,15 @@ public partial class AcousticCalibrationWindow : Window
         }
         finally
         {
-            if (_engine.CalibrationRestoreWarning is { } warning) ResultsText.Text += "\n" + warning;
+            var warnings = new[] { service.RestorationWarning, _engine.CalibrationRestoreWarning }.Where(w => !string.IsNullOrWhiteSpace(w)).Distinct().ToArray();
+            if (warnings.Length > 0)
+            {
+                ResultsText.Text += "\n恢复播放状态时需要注意：\n" + string.Join("\n", warnings);
+                StatusText.Text = "测量已结束，但部分原播放状态未能恢复。未应用新的延迟，请查看下方说明。";
+                ApplyButton.IsEnabled = false;
+                _report = null;
+                _closeAfterCancellation = false; // Keep restoration failures visible on cancel/close.
+            }
             _running = false;
             _cancel.Dispose();
             _cancel = null;

@@ -8,15 +8,23 @@
   <title>声屿 · 让音乐住满房间</title>
   <link rel="stylesheet" href="glass/glass.css">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="startup.css">
   <link rel="stylesheet" href="strands/strands-runtime.css">
   <link rel="stylesheet" href="strands/strands.css">
   <script src="appearance-init.js"></script>
 </head>
-<body>
+<body aria-busy="true">
+  <div class="app-startup" id="app-startup" role="status" aria-live="polite" data-state="loading">
+    <div class="startup-content">
+      <div class="startup-art" aria-hidden="true"><span class="startup-ripple"></span><span class="startup-ripple"></span><span class="startup-ripple"></span><img class="startup-logo" src="assets/shengyu-glass-logo.png" data-fallback-src="assets/shengyu-app-icon.svg" alt="" width="256" height="256"></div>
+      <h1>声屿</h1><p>让音乐住满房间</p><p class="startup-message">正在准备你的音乐空间…</p>
+    </div>
+  </div>
   <svg class="symbol-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <symbol id="i-brand" viewBox="0 0 24 24"><path d="M7.5 9.5v5M12 5.5v10M16.5 9.5v5M4.5 18c4.4 2.7 10.6 2.7 15 0"/></symbol>
     <symbol id="i-wave" viewBox="0 0 24 24"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5.5 10 6.5-10 6.5Z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+    <symbol id="i-source" viewBox="0 0 24 24"><rect x="3" y="3.5" width="18" height="12.5" rx="2.5"/><path d="M8 20.5h8M12 16v4.5m-3-11 3-3 3 3M12 6.5v6"/></symbol>
     <symbol id="i-speaker" viewBox="0 0 24 24"><rect x="5.5" y="3" width="13" height="18" rx="3"/><circle cx="12" cy="14.5" r="3.2"/><path d="M12 7.2v.1"/></symbol>
     <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12.5" rx="2.5"/><path d="M8 20.5h8M12 16.5v4"/></symbol>
     <symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m7 7 10 10-5 4V3l5 4L7 17"/></symbol>
@@ -41,9 +49,9 @@
   </svg>
   <div class="backdrop-layer" aria-hidden="true"></div>
   <div class="ambient-light" aria-hidden="true"></div>
-  <div class="app-shell">
+  <div class="app-shell" inert>
     <header class="app-header">
-      <a class="brand" href="#play" aria-label="声屿，播放页"><span class="brand-mark" aria-hidden="true"><svg><use href="#i-brand"/></svg></span><span>声屿<small>让音乐住满房间</small></span></a>
+      <a class="brand" href="#play" aria-label="声屿，播放页"><span class="brand-mark" aria-hidden="true"><img src="assets/shengyu-glass-logo.png" data-fallback-src="assets/shengyu-app-icon.svg" alt="" width="52" height="52"></span><span>声屿<small>让音乐住满房间</small></span></a>
       <nav class="main-nav glass" data-glass-surface data-glass-optical aria-label="主要导航">
         <button class="nav-item selected" type="button" data-page="play" aria-current="page"><svg><use href="#i-wave"/></svg><span>播放</span></button>
         <button class="nav-item" type="button" data-page="space"><svg><use href="#i-scene"/></svg><span>音场</span></button>
@@ -68,7 +76,7 @@
           <div class="hero-art strands-hero" aria-hidden="true"><div data-strands-host="hero"></div><span class="strands-fallback" hidden></span></div>
         </div>
         <div class="play-grid">
-          <section class="devices-section" aria-labelledby="devices-heading"><div class="section-heading"><div><p class="eyebrow">连接，让音乐相遇</p><h2 id="devices-heading">我的音箱 <span id="device-count" class="count">0</span></h2></div><button class="text-button" type="button" data-action="refresh"><svg><use href="#i-sync"/></svg>刷新设备</button></div><div class="device-list" id="device-list"></div><div id="devices-empty" class="empty-state panel" data-glass-surface><svg><use href="#i-speaker"/></svg><h3>让第一只音箱加入</h3><p>在 Windows 中连接蓝牙或有线音箱，<br>然后刷新设备列表。</p><button type="button" class="secondary-button" data-action="refresh">刷新设备</button></div></section>
+          <section class="devices-section" aria-labelledby="devices-heading"><div class="section-heading"><div><p class="eyebrow">连接，让音乐相遇</p><h2 id="devices-heading">正在使用 <span id="device-count" class="count">0</span></h2></div><button class="text-button" type="button" data-action="refresh"><svg><use href="#i-sync"/></svg>刷新设备</button></div><div class="device-list" id="device-list"></div><details id="inactive-devices" class="inactive-devices" hidden><summary id="inactive-devices-summary"><span>未启用设备 <span id="inactive-device-count" class="count">0</span></span><span class="inactive-devices-hint">展开后可开启</span></summary><p class="caption">这些设备尚未加入播放。开启后会自动移到上方，延迟设置保留，音量跟随整体音量。</p><div class="device-list" id="inactive-device-list"></div></details><div id="devices-empty" class="empty-state panel" data-glass-surface><svg><use href="#i-speaker"/></svg><h3>让第一只音箱加入</h3><p>在 Windows 中连接蓝牙或有线音箱，<br>然后刷新设备列表。</p><button type="button" class="secondary-button" data-action="refresh">刷新设备</button></div></section>
           <aside class="play-aside">
             <section class="master-card card" data-glass-surface><div class="section-heading compact"><h2>整体音量</h2><button class="icon-button" id="master-mute" type="button" aria-label="静音主音源" aria-pressed="false"><svg><use href="#i-volume"/></svg></button></div><div class="master-reading"><strong id="master-value">—</strong><span>%</span></div><label class="visually-hidden" for="master-volume">整体音量</label><input id="master-volume" type="range" min="0" max="100" step="1" value="0"><div class="range-captions"><span>轻一点</span><span>尽情听</span></div><p class="caption">与 Windows 主音量同步，各音箱仍可单独调节。</p></section>
             <section class="soundstage-card card" data-glass-surface><div class="section-heading compact"><h2>你的音场</h2><span id="active-outputs" class="small-badge">0 路转发</span></div><div class="mini-stage" aria-hidden="true"><div class="stage-orbit"></div><div class="stage-orbit orbit-inner"></div><div class="stage-listener"><svg><use href="#i-listener"/></svg></div><span class="stage-dot dot-fl"></span><span class="stage-dot dot-fr"></span><span class="stage-dot dot-sl"></span><span class="stage-dot dot-sr"></span><span class="front-label">前方</span></div><p>选一个适合此刻的听法，<br>再为每只音箱安排角色。</p><button class="full-link" type="button" data-go="space">调整音场<svg><use href="#i-arrow"/></svg></button></section>
@@ -115,9 +123,17 @@
   </div>
   <aside id="appearance-popover" class="appearance-popover glass" data-glass-surface data-glass-optical role="dialog" aria-modal="false" aria-labelledby="appearance-title" hidden><header class="appearance-popover-head"><div><p class="eyebrow">光，恰如你所愿</p><h2 id="appearance-title">玻璃调节</h2></div><button class="icon-button" id="close-appearance" type="button" aria-label="关闭玻璃调节"><svg><use href="#i-close"/></svg></button></header><div class="appearance-scroll"><p class="caption">可拖动标题移动浮层。修改立即预览，文字保持清晰。</p><div data-glass-customization></div></div></aside>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-  <template id="device-template"><article class="device-card panel" data-glass-surface><div class="device-top"><span class="device-icon"><svg><use href="#i-speaker"/></svg></span><div class="device-identify"><div class="device-name-line"><h3 class="device-name"></h3><span class="source-chip" hidden>主音源</span></div><p class="device-subtitle"></p></div><button class="icon-button favorite-button" type="button" aria-label="收藏音箱" aria-pressed="false"><svg><use href="#i-heart"/></svg></button><label class="switch-label device-connection"><input type="checkbox" data-field="isConnected"><span class="switch"></span><span class="visually-hidden">开启此音箱转发</span></label></div><div class="device-controls"><div class="volume-control"><label><svg><use href="#i-volume"/></svg><span>音量</span><output>0%</output></label><input type="range" data-field="volume" min="0" max="100" step="1" value="0"></div><div class="delay-control"><label>延迟 <span>毫秒</span></label><div class="number-stepper"><button type="button" data-step="-0.1" aria-label="减少延迟 0.1 毫秒">−</button><input type="number" data-field="latencyMs" min="0" max="3000" step="0.1" value="0.0"><button type="button" data-step="0.1" aria-label="增加延迟 0.1 毫秒">+</button></div></div></div><div class="device-bottom"><span class="device-sync"></span><button class="text-button eq-button" type="button" aria-expanded="false"><svg><use href="#i-sliders"/></svg>音色与均衡</button></div><div class="eq-controls" hidden><div class="eq-field"><label>低音 <output>0 dB</output></label><input type="range" data-field="bassBoost" min="-12" max="12" step="1" value="0"></div><div class="eq-field"><label>高音 <output>0 dB</output></label><input type="range" data-field="treble" min="-12" max="12" step="1" value="0"></div><label class="mono-option"><input type="checkbox" data-field="isMono">合并为单声道<span>左右声道合在一起</span></label></div></article></template>
+  <template id="device-template">
+    <article class="device-card panel" data-glass-surface>
+      <div class="device-top"><span class="device-icon"><svg><use href="#i-speaker"/></svg></span><div class="device-identify"><div class="device-name-line"><h3 class="device-name"></h3><span class="source-chip" hidden>主音源</span></div><p class="device-subtitle"></p></div><button class="icon-button favorite-button" type="button" aria-label="收藏音箱" aria-pressed="false"><svg><use href="#i-heart"/></svg></button><label class="switch-label device-connection"><input type="checkbox" data-field="isConnected"><span class="switch"></span><span class="visually-hidden">开启此音箱转发</span></label></div>
+      <div class="device-controls"><div class="volume-control"><label><svg><use href="#i-volume"/></svg><span>音量</span><output>0%</output></label><input type="range" data-field="volume" min="0" max="100" step="1" value="0"></div><div class="delay-control"><label>延迟 <span>毫秒</span></label><div class="number-stepper"><button type="button" data-step="-0.1" aria-label="减少延迟 0.1 毫秒">−</button><input type="number" data-field="latencyMs" min="0" max="3000" step="0.1" value="0.0"><button type="button" data-step="0.1" aria-label="增加延迟 0.1 毫秒">+</button></div></div></div>
+      <div class="device-bottom"><span class="device-sync"></span><div class="device-actions"><button class="text-button device-test-button" type="button" data-device-action="test" aria-pressed="false"><svg aria-hidden="true"><use href="#i-play"/></svg><span>试听</span></button><button class="text-button device-source-button" type="button" data-device-action="set-source"><svg aria-hidden="true"><use href="#i-source"/></svg><span>设为主音源</span></button><button class="text-button eq-button" type="button" aria-expanded="false"><svg aria-hidden="true"><use href="#i-sliders"/></svg>音色与均衡</button></div></div>
+      <div class="eq-controls" hidden><div class="eq-field"><label>低音 <output>0 dB</output></label><input type="range" data-field="bassBoost" min="-12" max="12" step="1" value="0"></div><div class="eq-field"><label>高音 <output>0 dB</output></label><input type="range" data-field="treble" min="-12" max="12" step="1" value="0"></div><label class="mono-option"><input type="checkbox" data-field="isMono">合并为单声道<span>左右声道合在一起</span></label></div>
+    </article>
+  </template>
   <template id="preset-device-template"><div class="preset-device"><label class="preset-check"><input type="checkbox"><span><strong class="preset-device-name"></strong><small class="preset-device-state"></small></span></label><label class="preset-position"><span>声音角色</span><select aria-label="声音角色"></select></label><label class="preset-capability"><span>已确认的设备能力</span><select aria-label="已确认的设备能力"><option value="unknown">请选择能力</option><option value="full">普通 / 全频音箱</option><option value="small">小音箱，低频有限</option><option value="bass">有低频能力 / 低音炮</option></select></label></div></template>
   <template id="spatial-template"><article class="spatial-card panel" data-glass-surface><div class="spatial-heading"><span class="device-icon"><svg><use href="#i-speaker"/></svg></span><div><h3></h3><p class="caption"></p></div></div><div class="spatial-fields"><label><span>声音角色</span><select data-spatial="role" aria-label="声音角色"></select></label><label><span>低频截止 <small>Hz</small></span><input type="number" data-spatial="lowCutHz" min="0" max="20000" step="1" value="0"><small>0 = 不限；去掉更低的声音</small></label><label><span>高频截止 <small>Hz</small></span><input type="number" data-spatial="highCutHz" min="0" max="20000" step="1" value="0"><small>0 = 不限；去掉更高的声音</small></label><label><span>分工衰减 <small>dB</small></span><input type="number" data-spatial="trimDb" min="-24" max="0" step="0.5" value="0"><small>0 = 保持；负数 = 减轻</small></label></div><div class="spatial-foot"><p class="caption spatial-notice"></p><button type="button" class="secondary-button apply-spatial">应用分工</button></div></article></template>
+  <script src="startup.js"></script>
   <script src="glass/glass-runtime.global.js"></script>
   <script src="glass/glass-settings.js"></script>
   <script src="glass/glass-popover.js"></script>

@@ -31,6 +31,7 @@ public sealed class AudioEngine : IDisposable
     private readonly Dictionary<string, Queue<double>> _queueHistory = new();
     private Timer? _syncTimer;
     private bool _isCalibrating;
+    private bool _isChangingSource;
     private string? _calibrationTargetId;
     private Dictionary<string, double>? _calibrationDelays;
     private bool _sourceMuteBeforeCalibration;
@@ -100,6 +101,142 @@ public sealed class AudioEngine : IDisposable
     }
 
     /// <summary>
+    /// Rebuilds the graph for an explicitly selected source, retaining this engine instance.
+    /// The caller owns the Windows-role and persisted/UI snapshots. Its callbacks participate
+    /// in the same rollback; no Windows endpoint volume or mute is changed by this operation.
+    /// Capture disposal must stay outside _lock because it joins the native capture callback.
+    /// </summary>
+    public void ChangeSource(string deviceId, IReadOnlyCollection<DeviceSettings> outputs,
+        Action changeWindowsDefaults, Action restoreWindowsDefaults, Action applySettings, Action restoreSettings)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) throw new ArgumentException("请选择有效的主音源。", nameof(deviceId));
+        ArgumentNullException.ThrowIfNull(outputs);
+        ArgumentNullException.ThrowIfNull(changeWindowsDefaults);
+        ArgumentNullException.ThrowIfNull(restoreWindowsDefaults);
+        ArgumentNullException.ThrowIfNull(applySettings);
+        ArgumentNullException.ThrowIfNull(restoreSettings);
+        var requested = outputs.ToArray();
+        foreach (var output in requested)
+        {
+            if (string.Equals(output.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("新主音源不能同时接收转发，否则会产生回授。");
+            if (!double.IsFinite(output.LatencyMs) || output.LatencyMs < 0 || output.LatencyMs > FixedDelaySampleProvider.MaximumDelayMs ||
+                !double.IsFinite(output.BassBoost) || !double.IsFinite(output.Treble))
+                throw new InvalidOperationException("设备的延迟或音色设置无效，暂不能切换主音源。");
+            output.Spatial?.Validate();
+        }
+        if (requested.Select(output => output.DeviceId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != requested.Length)
+            throw new InvalidOperationException("转发设备列表存在重复项。");
+
+        string? previousSource;
+        DeviceSettings[] previousOutputs;
+        lock (_lock)
+        {
+            if (_isCalibrating || _isChangingSource) throw new InvalidOperationException("正在校准或切换主音源，请稍后再试。");
+            previousSource = _capture.SourceDeviceId;
+            previousOutputs = _channels.Select(item => new DeviceSettings(item.Key, true, 0, item.Value.DelayMs,
+                BassBoost: item.Value.BassBoostDb, Treble: item.Value.TrebleDb, IsMono: item.Value.IsMono, Spatial: item.Value.Spatial)).ToArray();
+            _isChangingSource = true;
+            foreach (var channel in _channels.Values) channel.Volume = 0;
+            _queueHistory.Clear();
+        }
+
+        try
+        {
+            _capture.Stop();
+            ReleaseSourceOutputs();
+            changeWindowsDefaults();
+            _capture.ChangeSource(deviceId);
+            _capture.Start();
+            _desiredMute = _capture.SourceEndpointVolume?.Mute ?? false;
+            foreach (var output in requested) AddSourceOutput(output);
+            applySettings();
+            lock (_lock)
+            {
+                if (!_capture.IsCapturing) throw new InvalidOperationException(CaptureError ?? "新主音源未能持续提供声音。");
+                CaptureError = null;
+                SourceControlError = null;
+                _isChangingSource = false;
+                foreach (var (id, channel) in _channels) channel.Volume = PlaybackGain(id);
+            }
+            _syncTimer ??= new Timer(_ => RebalanceChannels(), null, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(SyncIntervalMs));
+        }
+        catch (Exception failure)
+        {
+            var recovery = new List<string>();
+            try { _capture.Stop(); } catch (Exception ex) { recovery.Add("停止新音源：" + ex.Message); }
+            try { ReleaseSourceOutputs(); } catch (Exception ex) { recovery.Add("释放新转发：" + ex.Message); }
+            try { restoreWindowsDefaults(); } catch (Exception ex) { recovery.Add("恢复 Windows 默认设备：" + ex.Message); }
+            try { _capture.ChangeSource(previousSource); _capture.Start(); }
+            catch (Exception ex) { recovery.Add("恢复原音源：" + ex.Message); }
+            foreach (var output in previousOutputs)
+                try { AddSourceOutput(output); }
+                catch (Exception ex) { recovery.Add("恢复原转发设备：" + ex.Message); }
+            var audioRestored = recovery.Count == 0;
+            try { restoreSettings(); } catch (Exception ex) { recovery.Add("恢复原设置：" + ex.Message); }
+            lock (_lock)
+            {
+                _isChangingSource = false;
+                _queueHistory.Clear();
+                if (audioRestored && _capture.IsCapturing)
+                {
+                    CaptureError = null;
+                    try { _desiredMute = _capture.SourceEndpointVolume?.Mute ?? _desiredMute; }
+                    catch (Exception ex) { recovery.Add("读取原音源静音：" + ex.Message); }
+                }
+                else
+                {
+                    if (!_capture.IsCapturing) recovery.Add("原音源未能持续提供声音。");
+                    CaptureError = "主音源切换失败，原播放连接未能完整恢复：" + string.Join("；", recovery);
+                }
+                foreach (var (id, channel) in _channels) channel.Volume = PlaybackGain(id);
+            }
+            var detail = recovery.Count == 0 ? "已恢复原主音源和转发设置。" : "恢复时仍有问题：" + string.Join("；", recovery);
+            throw new InvalidOperationException("未能切换主音源：" + failure.Message + "\n" + detail, failure);
+        }
+    }
+
+    private void AddSourceOutput(DeviceSettings settings)
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        using var device = enumerator.GetDevice(settings.DeviceId);
+        if (device.State != DeviceState.Active) throw new InvalidOperationException("转发设备已断开：" + device.FriendlyName);
+        if (_capture.CaptureFormat is not { } format) throw new InvalidOperationException("主音源格式尚未就绪。");
+        OutputChannel? channel = null;
+        try
+        {
+            channel = new OutputChannel(device, format) { Volume = 0 };
+            channel.SetDelay(settings.LatencyMs);
+            channel.BassBoostDb = settings.BassBoost;
+            channel.TrebleDb = settings.Treble;
+            channel.IsMono = settings.IsMono;
+            channel.Spatial = settings.Spatial ?? new();
+            lock (_lock) _channels.Add(settings.DeviceId, channel);
+        }
+        catch
+        {
+            try { channel?.Dispose(); } catch { /* Keep the original channel-opening error. */ }
+            throw;
+        }
+    }
+
+    private void ReleaseSourceOutputs()
+    {
+        OutputChannel[] channels;
+        lock (_lock)
+        {
+            channels = _channels.Values.ToArray();
+            _channels.Clear();
+            _queueHistory.Clear();
+        }
+        var errors = new List<string>();
+        foreach (var channel in channels)
+            try { channel.Dispose(); }
+            catch (Exception ex) { errors.Add(ex.Message); }
+        if (errors.Count > 0) throw new InvalidOperationException(string.Join("；", errors));
+    }
+
+    /// <summary>
     /// Compare minima observed at actual feed/read boundaries, avoiding timer/chunk aliasing.
     /// Trim relative backlog and sustained common backlog, also with one output. Fixed manual
     /// delays live in a separate ring and are never included. Trim future producer input only;
@@ -111,7 +248,7 @@ public sealed class AudioEngine : IDisposable
 
         lock (_lock)
         {
-            if (_isCalibrating || _channels.Count == 0) return;
+            if (_isCalibrating || _isChangingSource || _channels.Count == 0) return;
             // Playback threads keep consuming concurrently: take each queue reading once.
             var snapshot = _channels.Select(p => (Id: p.Key, Channel: p.Value, Queue: p.Value.TakeQueueSnapshot())).ToArray();
             var target = snapshot.Min(p => p.Queue.MinimumMs);
@@ -161,11 +298,12 @@ public sealed class AudioEngine : IDisposable
             if (_channels.ContainsKey(deviceId))
                 return AddOutputResult.Success;
 
+            OutputChannel? pendingChannel = null;
             try
             {
                 using var enumerator = new MMDeviceEnumerator();
-                var device = enumerator.GetDevice(deviceId);
-                var channel = new OutputChannel(device, _capture.CaptureFormat!);
+                using var device = enumerator.GetDevice(deviceId);
+                var channel = pendingChannel = new OutputChannel(device, _capture.CaptureFormat!);
                 channel.SetDelay(delayMs);
                 channel.BassBoostDb = bassBoostDb;
                 channel.TrebleDb = trebleDb;
@@ -173,12 +311,14 @@ public sealed class AudioEngine : IDisposable
                 channel.Spatial = spatial ?? new SpatialProfile();
                 channel.Volume = PlaybackGain(deviceId);
                 _channels[deviceId] = channel;
+                pendingChannel = null;
             }
             catch (NotSupportedException) { return AddOutputResult.UnsupportedFormat; }
             catch (Exception)
             {
                 return AddOutputResult.DeviceUnavailable;
             }
+            finally { try { pendingChannel?.Dispose(); } catch { /* Preserve the connection result. */ } }
         }
 
         return AddOutputResult.Success;
@@ -279,7 +419,7 @@ public sealed class AudioEngine : IDisposable
 
     // Endpoint volume already controls loudness. Software gain only gates calibration/failure;
     // multiplying master and device percentages here would attenuate the same signal twice.
-    private float PlaybackGain(string deviceId) => CaptureError is not null ? 0f : _isCalibrating
+    private float PlaybackGain(string deviceId) => CaptureError is not null || _isChangingSource ? 0f : _isCalibrating
         ? (deviceId == _calibrationTargetId ? 1f : 0f) : 1f;
 
     public void SetDelay(string deviceId, double delayMs)
@@ -322,22 +462,51 @@ public sealed class AudioEngine : IDisposable
         EnsureCaptureStarted();
         lock (_lock)
         {
-            if (_isCalibrating) throw new InvalidOperationException("已有校准正在进行");
+            if (_isCalibrating || _isChangingSource) throw new InvalidOperationException("已有校准或主音源切换正在进行");
             _sourceMuteBeforeCalibration = _capture.SourceEndpointVolume?.Mute ?? _desiredMute;
             _calibrationDelays = _channels.ToDictionary(p => p.Key, p => p.Value.DelayMs);
             _isCalibrating = true;
             _queueHistory.Clear();
             _calibrationTargetId = null;
             CalibrationRestoreWarning = null;
-            foreach (var channel in _channels.Values)
+            try
             {
-                channel.Volume = 0;
-                channel.SetCalibrationBypass(true);
-                channel.SetDelay(0);
-                channel.ClearForCalibration();
+                foreach (var channel in _channels.Values)
+                {
+                    channel.Volume = 0;
+                    channel.SetCalibrationBypass(true);
+                    channel.SetDelay(0);
+                    channel.ClearForCalibration();
+                }
+            }
+            catch (Exception ex)
+            {
+                // No scope has been returned yet. Restore all touched channels here.
+                EndAcousticCalibration();
+                throw new InvalidOperationException("无法准备声音隔离：" + ex.Message +
+                    (CalibrationRestoreWarning is null ? "；已恢复原设置。" : "；" + CalibrationRestoreWarning), ex);
             }
         }
         return new CalibrationScope(this);
+    }
+
+    /// <summary>Stops feeding isolated outputs and clears queued probe audio before volume restoration.</summary>
+    public void SilenceCalibrationOutputs()
+    {
+        lock (_lock)
+        {
+            if (!_isCalibrating) return;
+            _calibrationTargetId = null;
+            var errors = new List<string>();
+            foreach (var channel in _channels.Values)
+            {
+                try { channel.Volume = 0; }
+                catch (Exception ex) { errors.Add("静音转发输出：" + ex.Message); }
+                try { channel.ClearForCalibration(); }
+                catch (Exception ex) { errors.Add("清除转发余音：" + ex.Message); }
+            }
+            if (errors.Count > 0) throw new InvalidOperationException(string.Join("；", errors));
+        }
     }
 
     public double SelectCalibrationOutput(string? deviceId, double separationMs = 0)
@@ -370,13 +539,20 @@ public sealed class AudioEngine : IDisposable
     {
         lock (_lock)
         {
+            var errors = new List<string>();
             foreach (var (id, channel) in _channels)
             {
-                channel.Volume = 0;
-                channel.ClearForCalibration();
-                if (_calibrationDelays?.TryGetValue(id, out var delay) == true) channel.SetDelay(delay);
-                channel.SetCalibrationBypass(false);
-                channel.Volume = CaptureError is null ? 1f : 0f;
+                var failed = false;
+                void RestorePart(Action restore)
+                {
+                    try { restore(); }
+                    catch (Exception ex) { failed = true; errors.Add("恢复转发设备 " + id + "：" + ex.Message); }
+                }
+                RestorePart(() => channel.Volume = 0);
+                RestorePart(channel.ClearForCalibration);
+                if (_calibrationDelays?.TryGetValue(id, out var delay) == true) RestorePart(() => channel.SetDelay(delay));
+                RestorePart(() => channel.SetCalibrationBypass(false));
+                RestorePart(() => channel.Volume = !failed && CaptureError is null ? 1f : 0f);
             }
             _calibrationTargetId = null;
             _calibrationDelays = null;
@@ -385,9 +561,11 @@ public sealed class AudioEngine : IDisposable
             _desiredMute = _sourceMuteBeforeCalibration;
             try
             {
-                if (_capture.SourceEndpointVolume is { } volume) volume.Mute = _sourceMuteBeforeCalibration;
+                var volume = _capture.SourceEndpointVolume ?? throw new InvalidOperationException("原音源音量控制已不可用。");
+                volume.Mute = _sourceMuteBeforeCalibration;
             }
-            catch { CalibrationRestoreWarning = "音源设备已断开，无法恢复它的静音状态；重新连接后请检查音源静音开关。"; }
+            catch (Exception ex) { errors.Add("无法恢复原音源静音状态：" + ex.Message); }
+            CalibrationRestoreWarning = errors.Count == 0 ? null : string.Join("；", errors);
         }
     }
 
@@ -401,6 +579,7 @@ public sealed class AudioEngine : IDisposable
     {
         lock (_lock)
         {
+            if (_isChangingSource) return;
             foreach (var (id, channel) in _channels)
                 if (!_isCalibrating || id == _calibrationTargetId)
                     channel.Feed(buffer, bytesRecorded);

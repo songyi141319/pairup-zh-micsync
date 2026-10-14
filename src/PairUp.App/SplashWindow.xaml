@@ -3,28 +3,22 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
-        WindowStartupLocation="CenterScreen" Width="240" Height="240">
-    <Border Background="#162B3C" CornerRadius="28" Opacity="0.98">
-        <Grid>
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Border x:Name="LogoMark" Width="88" Height="88" CornerRadius="24" RenderTransformOrigin="0.5,0.5">
-                    <Border.RenderTransform>
-                        <ScaleTransform x:Name="LogoScale" ScaleX="0.7" ScaleY="0.7"/>
-                    </Border.RenderTransform>
-                    <Border.Effect>
-                        <DropShadowEffect Color="#78B8C5" BlurRadius="24" ShadowDepth="0" Opacity="0.16"/>
-                    </Border.Effect>
-                    <Image Source="Assets/shengyu.png" Stretch="Uniform"/>
-                </Border>
-
-                <TextBlock x:Name="Wordmark" Text="声屿" FontFamily="Bahnschrift SemiBold, Segoe UI Semibold"
-                           FontSize="18" Foreground="#f3ede1" HorizontalAlignment="Center"
-                           Margin="0,20,0,0" Opacity="0">
-                    <TextBlock.RenderTransform>
-                        <TranslateTransform x:Name="WordmarkOffset" Y="8"/>
-                    </TextBlock.RenderTransform>
-                </TextBlock>
-            </StackPanel>
-        </Grid>
+        WindowStartupLocation="CenterScreen" Width="280" Height="280">
+    <Border Background="#F8FAFC" CornerRadius="32" Opacity="0.98">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Grid Width="180" Height="172">
+                <Ellipse x:Name="RippleOne" Width="148" Height="52" Stroke="#06B6D4" StrokeThickness="1.5" Opacity="0" VerticalAlignment="Bottom" RenderTransformOrigin="0.5,0.5">
+                    <Ellipse.RenderTransform><ScaleTransform/></Ellipse.RenderTransform>
+                </Ellipse>
+                <Ellipse x:Name="RippleTwo" Width="148" Height="52" Stroke="#7C3AED" StrokeThickness="1.5" Opacity="0" VerticalAlignment="Bottom" RenderTransformOrigin="0.5,0.5">
+                    <Ellipse.RenderTransform><ScaleTransform/></Ellipse.RenderTransform>
+                </Ellipse>
+                <Ellipse x:Name="RippleThree" Width="148" Height="52" Stroke="#F97316" StrokeThickness="1.5" Opacity="0" VerticalAlignment="Bottom" RenderTransformOrigin="0.5,0.5">
+                    <Ellipse.RenderTransform><ScaleTransform/></Ellipse.RenderTransform>
+                </Ellipse>
+                <Image Width="144" Height="144" VerticalAlignment="Top" Source="Assets/shengyu.png" Stretch="Uniform"/>
+            </Grid>
+            <TextBlock Text="声屿" FontFamily="Microsoft YaHei UI" FontSize="22" Foreground="#243447" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+        </StackPanel>
     </Border>
 </Window>
