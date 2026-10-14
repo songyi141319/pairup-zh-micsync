@@ -215,7 +215,7 @@ public partial class MainWindow
             auditionVolume = _auditionVolume,
             devices = _viewModel.Devices.Select(d => new
             {
-                id = d.Id, name = d.Name, kind = d.KindDisplayName, isConnected = d.IsConnected,
+                id = d.Id, name = d.Name, kind = d.KindDisplayName, modeHint = d.ModeHint, isConnected = d.IsConnected,
                 isAvailable = d.State == DeviceState.Active, note = _deviceNotes.GetValueOrDefault(d.Id, string.Empty),
                 isSystemDefault = d.IsSystemDefault, volume = d.Volume, latencyMs = d.LatencyMs,
                 bassBoost = d.BassBoost, treble = d.Treble, isMono = d.IsMono, isFavorite = d.IsFavorite,

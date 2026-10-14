@@ -174,12 +174,9 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         using var source = enumerator.GetDevice(sourceId);
         WaveFormat format;
         using (var client = source.AudioClient) format = client.MixFormat;
-        using var output = new WasapiOut(source, AudioClientShareMode.Shared, true, 10);
-        volumes.EnsureReady("创建测试播放连接后");
         var signal = new ProbeSampleProvider(format.SampleRate, format.Channels);
-        try { output.Init(signal); }
-        catch (Exception ex) { throw new InvalidOperationException("无法准备测试音播放：" + ex.Message, ex); }
-        volumes.EnsureReady("测试播放初始化后");
+        using var output = SharedAudioOutput.Open(source, signal.ToWaveProvider(), 10, out var compatibilityMode, cancellationToken);
+        volumes.EnsureReady(compatibilityMode ? "测试播放初始化后（兼容播放，100毫秒缓冲）" : "测试播放初始化后");
         // Init may create a new Windows mixer session. Capture its original state before
         // normalizing this process's session; endpoint volume remains capped at the chosen level.
         volumes.PrepareOwnSessions("测试播放初始化并调整声屿应用音量后");

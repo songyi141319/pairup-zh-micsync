@@ -17,6 +17,11 @@ public sealed class AudioDeviceInfo : INotifyPropertyChanged
     public required string Id { get; init; }
     public required string Name { get; init; }
     public required DeviceKind Kind { get; init; }
+    public bool IsHandsFree => Name.Contains("hands-free", StringComparison.OrdinalIgnoreCase)
+        || Name.Contains("hands free", StringComparison.OrdinalIgnoreCase);
+    public string ModeHint => IsHandsFree
+        ? "通话模式 · 听音乐优先选择同名的扬声器或 Stereo；同一设备的两种模式不能当作两台音箱使用。"
+        : string.Empty;
     public string KindDisplayName => Kind switch
     {
         DeviceKind.Bluetooth => "蓝牙",

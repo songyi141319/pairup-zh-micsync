@@ -293,7 +293,7 @@
       audioBusy: incoming.audioBusy === true,
       status: typeof incoming.status === 'string' ? incoming.status : '',
       devices: incoming.devices.filter(device => device && typeof device.id === 'string').map(device => ({
-        id: device.id, name: String(device.name || '未命名音箱'), kind: String(device.kind || '音频输出'),
+        id: device.id, name: String(device.name || '未命名音箱'), kind: String(device.kind || '音频输出'), modeHint: String(device.modeHint || ''),
         isAvailable: device.isAvailable === true, note: typeof device.note === 'string' ? device.note.trim().slice(0, 80) : '',
         isConnected: device.isConnected === true, isSystemDefault: device.isSystemDefault === true,
         volume: clamp(finite(device.volume), 0, 100), latencyMs: clamp(finite(device.latencyMs), 0, 3000),
@@ -382,6 +382,12 @@
       ? device.kind + ' · Windows 未连接' + (device.isConnected && !isSource ? ' · 已保留转发选择' : '')
       : isSource ? 'Windows 主音源 · 已连接 · 原声直出' : device.kind + ' · Windows 已连接 · ' + (device.isConnected ? '转发已开启' : '转发未开启');
     iconUse(card.querySelector('.device-icon'), isSource ? 'monitor' : 'speaker');
+    let modeHint = card.querySelector('.device-mode-hint');
+    if (!modeHint) {
+      modeHint = document.createElement('p'); modeHint.className = 'device-subtitle device-mode-hint';
+      card.querySelector('.device-identify').append(modeHint);
+    }
+    modeHint.textContent = device.modeHint || ''; modeHint.hidden = !device.modeHint;
     const favorite = card.querySelector('.favorite-button'); favorite.setAttribute('aria-pressed', String(device.isFavorite));
     favorite.setAttribute('aria-label', (device.isFavorite ? '取消收藏' : '收藏') + device.name); favorite.disabled = disabled;
     card.querySelector('.device-connection').hidden = isSource;

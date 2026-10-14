@@ -166,15 +166,20 @@ public sealed class AudioEngine : IDisposable
             _queueHistory.Clear();
         }
 
+        var switchStage = "停止原播放连接";
         try
         {
             try { _capture.Stop(); } catch { /* A removed source cannot stop normally. */ }
             try { ReleaseSourceOutputs(); } catch { /* Routes are already detached and gated. */ }
+            switchStage = "更改 Windows 默认设备";
             changeWindowsDefaults();
+            switchStage = "打开新主音源";
             _capture.ChangeSource(deviceId);
             _capture.Start();
             _desiredMute = _capture.SourceEndpointVolume?.Mute ?? false;
+            switchStage = "重新连接输出音箱";
             foreach (var output in requested) AddSourceOutput(output);
+            switchStage = "保存主音源设置";
             applySettings();
             lock (_lock)
             {
@@ -221,7 +226,7 @@ public sealed class AudioEngine : IDisposable
                 foreach (var (id, channel) in _channels) channel.Volume = PlaybackGain(id);
             }
             var detail = recovery.Count == 0 ? "已恢复原主音源和转发设置。" : "恢复时仍有问题：" + string.Join("；", recovery);
-            throw new InvalidOperationException("未能切换主音源：" + failure.Message + "\n" + detail, failure);
+            throw new InvalidOperationException("未能切换主音源（" + switchStage + "）：" + failure.Message + "\n" + detail, failure);
         }
     }
 
@@ -242,10 +247,10 @@ public sealed class AudioEngine : IDisposable
             channel.Spatial = settings.Spatial ?? new();
             lock (_lock) _channels.Add(settings.DeviceId, channel);
         }
-        catch
+        catch (Exception ex)
         {
             try { channel?.Dispose(); } catch { /* Keep the original channel-opening error. */ }
-            throw;
+            throw new InvalidOperationException(AudioFailure.Describe(ex, device.FriendlyName, "重新连接输出"), ex);
         }
     }
 

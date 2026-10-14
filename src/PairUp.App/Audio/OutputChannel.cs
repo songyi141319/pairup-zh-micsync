@@ -36,11 +36,10 @@ public sealed class OutputChannel : IDisposable
         _processingProvider = new SpatialOutputSampleProvider(_buffer.Samples, outputFormat.Channels, outputFormat.SampleRate);
         _volumeProvider = new VolumeSampleProvider(_processingProvider) { Volume = 0.75f };
 
-        _output = new WasapiOut(device, AudioClientShareMode.Shared, true, ChooseLatencyMs(device));
+        _output = SharedAudioOutput.Open(device, _volumeProvider.ToWaveProvider(), ChooseLatencyMs(device), out _);
         _output.PlaybackStopped += (_, _) => _playbackStopped = true;
         try
         {
-            _output.Init(_volumeProvider);
             // MMDevice.AudioClient activates a NEW client each time. Inspect the initialized
             // renderer's client instead; the pinned NAudio 2.2.1 has no public accessor.
             try

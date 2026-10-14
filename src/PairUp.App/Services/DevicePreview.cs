@@ -1,5 +1,6 @@
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
+using PairUp.App.Audio;
 
 namespace PairUp.App.Services;
 
@@ -27,6 +28,7 @@ internal sealed class DevicePreview
             volumes.Capture([new CalibrationTarget(deviceId, device.FriendlyName)]);
             // Prevent another application's music on this endpoint from becoming louder when
             // applying the user's explicitly chosen audition level. Do not alter its scalar.
+            stage = "读取应用音量";
             var existing = device.AudioSessionManager.Sessions;
             for (var i = 0; i < existing.Count; i++)
             {
@@ -39,16 +41,16 @@ internal sealed class DevicePreview
                 }
                 catch { if (!music.Any(item => ReferenceEquals(item.Session, session))) session.Dispose(); throw; }
             }
+            stage = "设置试听音量";
             volumes.ApplyLevel(percent, manual: true);
-            stage = "创建试听连接";
-            using var output = new WasapiOut(device, AudioClientShareMode.Shared, true, 30);
             stage = "读取播放格式";
             WaveFormat format;
             using (var client = device.AudioClient) format = client.MixFormat;
             stage = "准备试听播放";
-            output.Init(new Chime(format.SampleRate, format.Channels).ToWaveProvider());
+            using var output = SharedAudioOutput.Open(device,
+                new Chime(format.SampleRate, format.Channels).ToWaveProvider(), 30, out var compatibilityMode, cancellationToken);
             volumes.PrepareOwnSessions();
-            volumes.EnsureReady("准备试听后");
+            volumes.EnsureReady(compatibilityMode ? "准备试听后（兼容播放，100毫秒缓冲）" : "准备试听后");
             var stopped = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
             output.PlaybackStopped += (_, args) => stopped.TrySetResult(args.Exception);
             cancellationToken.ThrowIfCancellationRequested();
