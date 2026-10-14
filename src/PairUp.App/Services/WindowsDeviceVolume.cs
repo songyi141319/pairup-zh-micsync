@@ -52,6 +52,9 @@ public static class WindowsDeviceVolume
                 // Changing the percentage must not implicitly enable a muted speaker.
                 if (volume.Mute != wasMuted) volume.Mute = wasMuted;
             }
+            var actual = volume.MasterVolumeLevelScalar;
+            if (!float.IsFinite(actual) || Math.Abs(actual - value) > 0.02f || volume.Mute != wasMuted)
+                throw new InvalidOperationException($"请求 {value * 100:0.0}%，Windows 实际返回 {actual * 100:0.0}%；设备未确认音量或静音状态。");
             return true;
         }
         catch (Exception ex)

@@ -15,10 +15,13 @@ internal sealed class DevicePreview
         var volumes = new CalibrationVolumeScope();
         var music = new List<(AudioSessionControl Session, bool Muted)>();
         var warnings = new List<string>();
+        var deviceName = "所选音箱";
+        var stage = "读取设备";
         try
         {
             using var enumerator = new MMDeviceEnumerator();
             using var device = enumerator.GetDevice(deviceId);
+            deviceName = device.FriendlyName;
             if (device.State != DeviceState.Active)
                 throw new InvalidOperationException("这台设备未连接，请连接后再试听。");
             volumes.Capture([new CalibrationTarget(deviceId, device.FriendlyName)]);
@@ -37,23 +40,40 @@ internal sealed class DevicePreview
                 catch { if (!music.Any(item => ReferenceEquals(item.Session, session))) session.Dispose(); throw; }
             }
             volumes.ApplyLevel(percent, manual: true);
+            stage = "创建试听连接";
             using var output = new WasapiOut(device, AudioClientShareMode.Shared, true, 30);
-            var format = device.AudioClient.MixFormat;
+            stage = "读取播放格式";
+            WaveFormat format;
+            using (var client = device.AudioClient) format = client.MixFormat;
+            stage = "准备试听播放";
             output.Init(new Chime(format.SampleRate, format.Channels).ToWaveProvider());
             volumes.PrepareOwnSessions();
+            volumes.EnsureReady("准备试听后");
             var stopped = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
             output.PlaybackStopped += (_, args) => stopped.TrySetResult(args.Exception);
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                stage = "开始试听";
                 output.Play();
-                var timeout = Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
-                var finished = await Task.WhenAny(stopped.Task, timeout);
-                cancellationToken.ThrowIfCancellationRequested();
-                if (finished != stopped.Task) throw new InvalidOperationException("设备未及时结束试听，请检查连接。");
+                volumes.EnsureReady("开始试听后");
+                var elapsed = System.Diagnostics.Stopwatch.StartNew();
+                while (!stopped.Task.IsCompleted)
+                {
+                    await Task.WhenAny(stopped.Task, Task.Delay(250, cancellationToken));
+                    cancellationToken.ThrowIfCancellationRequested();
+                    volumes.EnsureReady("试听播放中", freshRead: false);
+                    if (elapsed.Elapsed > TimeSpan.FromSeconds(5))
+                        throw new InvalidOperationException("设备未及时结束试听，请检查连接。");
+                }
                 if (await stopped.Task is { } error) throw new InvalidOperationException("试听播放失败：" + error.Message, error);
             }
             finally { output.Stop(); }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(AudioFailure.Describe(ex, deviceName, stage) + "\n" + volumes.DescribeDiagnostics(), ex);
         }
         finally
         {

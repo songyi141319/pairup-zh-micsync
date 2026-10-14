@@ -14,7 +14,7 @@ public sealed class AudioDeviceManager
     public OutputDeviceSnapshot GetOutputSnapshot()
     {
         using var enumerator = new MMDeviceEnumerator();
-        var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active | DeviceState.Unplugged);
+        var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.All);
 
         var result = new List<AudioDeviceInfo>();
         var warnings = new List<string>();

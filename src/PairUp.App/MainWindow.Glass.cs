@@ -9,6 +9,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using NAudio.CoreAudioApi;
 using PairUp.App.Audio;
+using PairUp.App.Services;
 
 namespace PairUp.App;
 
@@ -21,8 +22,24 @@ public partial class MainWindow
     private Button? _returnToGlass;
     private bool _glassReady;
     private bool _glassDisposed;
+    private bool _glassUnavailable;
+    private bool _primaryInterfaceReady;
     private string? _lastGlassState;
     private readonly DispatcherTimer _glassStateTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private readonly DispatcherTimer _glassStartupTimer = new() { Interval = TimeSpan.FromSeconds(20) };
+    private readonly DeviceNotesStore _deviceNotesStore = new();
+    private Dictionary<string, string> _deviceNotes = new(StringComparer.Ordinal);
+    private string? _deviceNotesLoadWarning;
+
+    public event EventHandler? PrimaryInterfaceReady;
+
+    private void CompleteInterfaceStartup()
+    {
+        if (_primaryInterfaceReady || _glassDisposed) return;
+        _primaryInterfaceReady = true;
+        _glassStartupTimer.Stop();
+        PrimaryInterfaceReady?.Invoke(this, EventArgs.Empty);
+    }
 
     private void LoadPreviewDevices()
     {
@@ -47,9 +64,17 @@ public partial class MainWindow
     {
         try
         {
+            _legacyContent = (UIElement)Content;
+            _legacyContent.Visibility = Visibility.Collapsed;
+            _glassStartupTimer.Tick += (_, _) => GlassFailed("界面加载时间较长，请稍后重新打开程序");
+            _glassStartupTimer.Start();
+            if (!_uiPreview)
+            {
+                try { _deviceNotes = _deviceNotesStore.Load(); }
+                catch { _deviceNotesLoadWarning = "设备备注暂时无法读取，原备注文件已保留。保存备注前请检查文件是否可访问。"; }
+            }
             var webRoot = Path.Combine(AppContext.BaseDirectory, "Web");
             if (!File.Exists(Path.Combine(webRoot, "index.html"))) throw new IOException("缺少随程序提供的 Web 界面文件夹");
-            _legacyContent = (UIElement)Content;
             Content = null;
             var root = new Grid();
             root.Children.Add(_legacyContent);
@@ -81,8 +106,9 @@ public partial class MainWindow
             Content = root;
             var dataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PairUp", _uiPreview ? "WebViewPreview" : "WebView");
             var environment = await CoreWebView2Environment.CreateAsync(null, dataDirectory);
-            if (_glassDisposed) return;
+            if (_glassDisposed || _glassUnavailable) return;
             await _glass.EnsureCoreWebView2Async(environment);
+            if (_glassDisposed || _glassUnavailable) return;
             var core = _glass.CoreWebView2;
             core.Settings.IsWebMessageEnabled = true;
             core.Settings.AreHostObjectsAllowed = false;
@@ -107,10 +133,12 @@ public partial class MainWindow
             core.WebMessageReceived += GlassMessageReceived;
             core.NavigationCompleted += async (_, args) =>
             {
-                if (!args.IsSuccess || _glassDisposed) return;
+                if (_glassDisposed || _glassUnavailable) return;
+                if (!args.IsSuccess) { GlassFailed("页面未能加载：" + args.WebErrorStatus); return; }
                 _glassReady = true;
                 ShowGlass(true);
                 await SendGlassStateAsync(true);
+                if (!_glassReady) return;
                 _glassStateTimer.Start();
                 if (_uiPreview) await RunPreviewChecksAsync();
             };
@@ -131,6 +159,7 @@ public partial class MainWindow
     private void GlassFailed(string reason)
     {
         if (_glassDisposed) return;
+        _glassUnavailable = true;
         _glassReady = false;
         _glassStateTimer.Stop();
         _viewModel.StatusText = "玻璃界面暂不可用，已保留原生界面：" + reason;
@@ -138,6 +167,7 @@ public partial class MainWindow
         _legacyContent?.SetCurrentValue(VisibilityProperty, Visibility.Visible);
         _returnToGlass?.SetCurrentValue(VisibilityProperty, Visibility.Collapsed);
         if (!_uiPreview) _visualizer?.Start();
+        CompleteInterfaceStartup();
     }
 
     private static bool IsGuideLink(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri)
@@ -171,6 +201,7 @@ public partial class MainWindow
             devices = _viewModel.Devices.Select(d => new
             {
                 id = d.Id, name = d.Name, kind = d.KindDisplayName, isConnected = d.IsConnected,
+                isAvailable = d.State == DeviceState.Active, note = _deviceNotes.GetValueOrDefault(d.Id, string.Empty),
                 isSystemDefault = d.IsSystemDefault, volume = d.Volume, latencyMs = d.LatencyMs,
                 bassBoost = d.BassBoost, treble = d.Treble, isMono = d.IsMono, isFavorite = d.IsFavorite,
                 syncStatusText = d.SyncStatusText, syncDetailsText = d.SyncDetailsText,
@@ -194,12 +225,45 @@ public partial class MainWindow
             var data = document.RootElement;
             var action = data.GetProperty("action").GetString();
             if (action == "ready") { await SendGlassStateAsync(true); return; }
+            if (action == "viewReady")
+            {
+                if (_glassReady && !_glassUnavailable)
+                {
+                    CompleteInterfaceStartup();
+                    if (_deviceNotesLoadWarning is { } warning)
+                    {
+                        _deviceNotesLoadWarning = null;
+                        await GlassNoticeAsync(new { message = warning, error = true });
+                    }
+                }
+                return;
+            }
             if (action == "minimize") { WindowState = WindowState.Minimized; return; }
             if (action == "maximize") { WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; return; }
             if (action == "close") { if (_uiPreview) Close(); else WindowState = WindowState.Minimized; return; }
             if (action == "exit") { Close(); return; }
             if (action == "legacy") { ShowGlass(false); return; }
             if (action == "stopDeviceTest") { _devicePreviewCancellation?.Cancel(); return; }
+            // Notes are metadata and can be edited even while sound controls are busy.
+            if (action == "deviceNote")
+            {
+                var noteId = data.GetProperty("id").GetString();
+                if (noteId is null || !_viewModel.Devices.Any(d => d.Id == noteId))
+                    throw new InvalidOperationException("设备列表已改变，请刷新后再编辑备注。");
+                var note = DeviceNotesStore.Normalize(data.GetProperty("note").GetString());
+                if (_uiPreview)
+                {
+                    if (note.Length == 0) _deviceNotes.Remove(noteId); else _deviceNotes[noteId] = note;
+                }
+                else
+                {
+                    try { _deviceNotes = _deviceNotesStore.Set(noteId, note); }
+                    catch (Exception ex) { throw new InvalidOperationException("备注未能保存，请检查设备备注文件是否可读写。原有备注已保留。", ex); }
+                }
+                await SendGlassStateAsync(true);
+                await GlassNoticeAsync(new { message = _uiPreview ? "演示备注已更新，仅保留在本次预览。" : note.Length == 0 ? "设备备注已移除。" : "设备备注已保存。" });
+                return;
+            }
             if (AudioBusy)
                 throw new InvalidOperationException("正在试听、校准或切换音源，请等待结束后再调整。");
             AudioDeviceInfo Device(JsonElement item) => _viewModel.Devices.SingleOrDefault(d => d.Id == item.GetProperty("id").GetString())
@@ -219,9 +283,8 @@ public partial class MainWindow
                     break;
                 case "master":
                     var volume = Number(data.GetProperty("value"), 0, 100);
-                    if (_uiPreview) foreach (var d in _viewModel.Devices.Where(d => d.IsConnected || d.IsSystemDefault)) d.Volume = volume;
-                    // Existing WPF binding handles the same master change as the original slider.
-                    _viewModel.MasterVolume = volume;
+                    if (!ApplyMasterVolume(volume))
+                        throw new InvalidOperationException(_audioEngine.VolumeControlError ?? "整体音量未能调整，请结束试听或校准后再试。");
                     break;
                 case "mute":
                     var muted = data.GetProperty("value").GetBoolean();
@@ -233,6 +296,8 @@ public partial class MainWindow
                     var field = data.GetProperty("field").GetString();
                     var value = data.GetProperty("value");
                     if (device.IsSystemDefault && field is not ("volume" or "isFavorite")) throw new InvalidOperationException("主音源由 Windows 直接播放，不能在转发中再次处理。");
+                    if (device.State != DeviceState.Active && field != "isFavorite" && !(field == "isConnected" && value.ValueKind == JsonValueKind.False))
+                        throw new InvalidOperationException("Windows 显示这台设备尚未连接。连接后刷新设备列表再调整。");
                     switch (field)
                     {
                         case "isConnected": device.IsConnected = value.GetBoolean(); break;
@@ -250,8 +315,8 @@ public partial class MainWindow
                     var items = action == "spatial" ? new[] { data } : data.GetProperty("items").EnumerateArray().ToArray();
                     if (items.Length is < 1 or > 32) throw new InvalidOperationException("请选择 1–32 台输出音箱");
                     var changes = items.Select(item => (Device: Device(item), Profile: ReadSpatial(item))).ToArray();
-                    if (changes.Select(c => c.Device.Id).Distinct().Count() != changes.Length || changes.Any(c => c.Device.IsSystemDefault || !c.Device.IsConnected))
-                        throw new InvalidOperationException("音场只可应用到已开启的转发输出，每台设备只能分配一次。");
+                    if (changes.Select(c => c.Device.Id).Distinct().Count() != changes.Length || changes.Any(c => c.Device.IsSystemDefault || !c.Device.IsConnected || c.Device.State != DeviceState.Active))
+                        throw new InvalidOperationException("音场只可应用到 Windows 已连接且已开启的转发输出，每台设备只能分配一次。");
                     var previous = changes.Select(c => (c.Device, c.Device.Spatial)).ToArray();
                     _isRestoringSettings = true;
                     try
@@ -290,7 +355,8 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            await GlassNoticeAsync(new { message = "未完成操作：" + ex.Message, error = true });
+            var summary = ex.Message.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "请稍后重试。";
+            await GlassNoticeAsync(new { message = summary, details = ex.ToString(), error = true });
             await SendGlassStateAsync(true);
         }
     }
@@ -323,6 +389,7 @@ public partial class MainWindow
         _glassDisposed = true;
         _glassReady = false;
         _glassStateTimer.Stop();
+        _glassStartupTimer.Stop();
         _glass?.Dispose();
     }
 

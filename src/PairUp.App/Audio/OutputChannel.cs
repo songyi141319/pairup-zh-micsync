@@ -17,15 +17,19 @@ public sealed class OutputChannel : IDisposable
     private readonly VolumeSampleProvider _volumeProvider;
     private readonly WasapiOut _output;
     private readonly AudioClient? _renderClient;
+    private volatile bool _playbackStopped;
 
     public string DeviceId { get; }
-    public bool IsPlaying => _output.PlaybackState == PlaybackState.Playing;
+    // NAudio 2.2.1 can raise PlaybackStopped after a native exception while its public
+    // PlaybackState still says Playing. Remember the event as well when deciding to reopen.
+    public bool IsPlaying => !_playbackStopped && _output.PlaybackState == PlaybackState.Playing;
 
     public OutputChannel(MMDevice device, WaveFormat sourceFormat)
     {
         DeviceId = device.ID;
         SpatialSampleProvider.ValidateChannels(sourceFormat.Channels);
-        var outputFormat = device.AudioClient.MixFormat;
+        WaveFormat outputFormat;
+        using (var client = device.AudioClient) outputFormat = client.MixFormat;
         SpatialSampleProvider.ValidateChannels(outputFormat.Channels);
         _buffer = new ChannelAudioBuffer(sourceFormat);
         // Spatial allocation must see original L/R before any stereo-to-mono conversion.
@@ -33,6 +37,7 @@ public sealed class OutputChannel : IDisposable
         _volumeProvider = new VolumeSampleProvider(_processingProvider) { Volume = 0.75f };
 
         _output = new WasapiOut(device, AudioClientShareMode.Shared, true, ChooseLatencyMs(device));
+        _output.PlaybackStopped += (_, _) => _playbackStopped = true;
         try
         {
             _output.Init(_volumeProvider);
@@ -75,7 +80,8 @@ public sealed class OutputChannel : IDisposable
         try
         {
             // DefaultDevicePeriod is in 100-nanosecond units.
-            var periodMs = device.AudioClient.DefaultDevicePeriod / 10000.0;
+            using var client = device.AudioClient;
+            var periodMs = client.DefaultDevicePeriod / 10000.0;
             return (int)Math.Clamp(Math.Ceiling(periodMs), 10, 100);
         }
         catch

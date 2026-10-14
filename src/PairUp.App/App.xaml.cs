@@ -18,15 +18,25 @@ public partial class App : Application
 
         var main = new MainWindow(e.Args.Contains("--ui-preview", StringComparer.Ordinal));
         MainWindow = main;
+        // Loaded only means the native tree exists. Keep it out of view until the
+        // web page has received device state and acknowledged its first render.
+        main.Opacity = 0;
+        main.ShowInTaskbar = false;
+        main.ShowActivated = false;
 
-        void CloseSplash(object? sender, RoutedEventArgs args)
+        async void ShowReadyInterface(object? sender, EventArgs args)
         {
-            main.Loaded -= CloseSplash;
-
-            // The ripple loop is feedback, not a mandatory startup wait.
+            main.PrimaryInterfaceReady -= ShowReadyInterface;
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+            if (!main.IsLoaded) return;
+            main.Opacity = 1;
+            main.ShowInTaskbar = true;
+            main.ShowActivated = true;
+            main.Activate();
             splash.Close();
         }
-        main.Loaded += CloseSplash;
+        main.PrimaryInterfaceReady += ShowReadyInterface;
+        main.Closed += (_, _) => splash.Close();
 
         main.Show();
     }

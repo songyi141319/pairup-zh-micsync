@@ -62,7 +62,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
                     // A disconnection, changed mixer state or stopped capture must win over
                     // a quiet snapshot; none of those conditions permits louder retries.
                     CheckForwarding();
-                    volumes.EnsureReady();
+                    volumes.EnsureReady("检查是否允许弱信号重试");
                     if (attempt + 1 == levels.Length)
                         throw new InvalidOperationException((options.Mode == CalibrationVolumeMode.Manual
                             ? $"手动模式保持 {percent}%，未自动提高音量。"
@@ -72,6 +72,13 @@ public sealed class AcousticCalibrator(AudioEngine engine)
                 }
             }
             throw new InvalidOperationException("校准未产生可用测量结果。");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            // This is deliberately before finally: normal-volume restoration must not be
+            // mistaken for the temporary level that was present while a probe was running.
+            throw new InvalidOperationException(ex.Message + "\n" + volumes.DescribeDiagnostics(), ex);
         }
         finally
         {
@@ -121,13 +128,15 @@ public sealed class AcousticCalibrator(AudioEngine engine)
                 try
                 {
                     CheckForwarding();
-                    volumes.EnsureReady();
+                    volumes.EnsureReady("选择待测音箱前");
                     var separation = engine.SelectCalibrationOutput(isSource ? null : target.DeviceId,
                         isSource ? 0 : separationBaseMs + repeat * 100);
+                    volumes.EnsureReady("选择待测音箱并确认主音源解除静音后");
                     await Task.Delay(250, cancellationToken);
+                    volumes.EnsureReady("等待播放连接稳定后");
                     var result = await MeasureProbeAsync(sourceId, microphone, reference, volumes, separation, cancellationToken);
                     CheckForwarding();
-                    volumes.EnsureReady();
+                    volumes.EnsureReady("本次测量完成后");
                     arrivals.Add(result.ArrivalMs);
                     confidence = Math.Min(confidence, result.Confidence);
                 }
@@ -138,7 +147,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
                 }
                 catch (Exception ex)
                 {
-                    throw new InvalidOperationException($"“{target.Name}”第 {repeat + 1}/3 次测量失败：{ex.Message}\n{DescribeVolumes(targets)}\n未应用新的延迟。", ex);
+                    throw new InvalidOperationException($"“{target.Name}”第 {repeat + 1}/3 次测量失败：{ex.Message}\n未应用新的延迟。", ex);
                 }
             }
             arrivals.Sort();
@@ -163,15 +172,17 @@ public sealed class AcousticCalibrator(AudioEngine engine)
     {
         using var enumerator = new MMDeviceEnumerator();
         using var source = enumerator.GetDevice(sourceId);
-        var format = source.AudioClient.MixFormat;
+        WaveFormat format;
+        using (var client = source.AudioClient) format = client.MixFormat;
         using var output = new WasapiOut(source, AudioClientShareMode.Shared, true, 10);
+        volumes.EnsureReady("创建测试播放连接后");
         var signal = new ProbeSampleProvider(format.SampleRate, format.Channels);
         try { output.Init(signal); }
         catch (Exception ex) { throw new InvalidOperationException("无法准备测试音播放：" + ex.Message, ex); }
+        volumes.EnsureReady("测试播放初始化后");
         // Init may create a new Windows mixer session. Capture its original state before
         // normalizing this process's session; endpoint volume remains capped at the chosen level.
-        volumes.PrepareOwnSessions();
-        volumes.EnsureReady();
+        volumes.PrepareOwnSessions("测试播放初始化并调整声屿应用音量后");
         var stopped = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
         output.PlaybackStopped += (_, args) => stopped.TrySetResult(args.Exception);
         var durationMs = (int)Math.Ceiling(4900 + separationMs);
@@ -180,15 +191,25 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         {
             try { output.Play(); }
             catch (Exception ex) { throw new InvalidOperationException("无法开始播放测试音：" + ex.Message, ex); }
+            volumes.EnsureReady("启动测试播放后");
             var duration = Task.Delay(durationMs, cancellationToken);
-            await Task.WhenAny(duration, stopped.Task);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (stopped.Task.IsCompleted)
-                throw new InvalidOperationException("测试音播放提前停止：" + ((await stopped.Task)?.Message ?? "请检查音源连接"));
+            while (!duration.IsCompleted)
+            {
+                await Task.WhenAny(duration, stopped.Task, Task.Delay(250, cancellationToken));
+                cancellationToken.ThrowIfCancellationRequested();
+                if (stopped.Task.IsCompleted)
+                {
+                    var error = await stopped.Task;
+                    throw new InvalidOperationException("测试音播放提前停止：" + (error?.Message ?? "请检查音源连接"), error);
+                }
+                volumes.EnsureReady("测试音播放中", freshRead: false);
+            }
             await duration;
+            volumes.EnsureReady("测试音播放结束前");
         }
         finally { output.Stop(); }
         await Task.Delay(100, cancellationToken);
+        volumes.EnsureReady("测试音停止后、信号分析前");
         var end = begin + durationMs * 10000L;
         var refAudio = reference.Snapshot(begin, end);
         var micAudio = microphone.Snapshot(begin, end);
@@ -207,13 +228,6 @@ public sealed class AcousticCalibrator(AudioEngine engine)
     {
         try { restore(); }
         catch { warnings.Add(warning); }
-    }
-
-    private static string DescribeVolumes(IReadOnlyList<CalibrationTarget> targets)
-    {
-        var states = WindowsDeviceVolume.Read(targets.Select(t => t.DeviceId));
-        return "失败时的 Windows 设备音量：" + string.Join("；", targets.Select(t =>
-            states.TryGetValue(t.DeviceId, out var state) ? $"{t.Name} {state.Percent:0}%{(state.Muted ? "（静音）" : "")}" : $"{t.Name} 无法读取"));
     }
 
     private sealed class ProbeSampleProvider : ISampleProvider

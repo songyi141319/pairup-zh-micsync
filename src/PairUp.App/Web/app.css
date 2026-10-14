@@ -3268,3 +3268,57 @@ select{
 .spatial-heading>div { min-width:0; flex:1; }
 .preset-device-name { font-size:12px; }
 .guest-selected-name { margin-top:12px; font-size:12px; }
+
+/* Windows availability and the user's forwarding choice are independent. */
+.available-devices { margin-top:26px; padding-top:21px; border-top:1px solid var(--line); }
+.device-group-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.device-group-heading h3 { margin:0; font-size:16px; font-weight:620; }
+.available-devices>.caption { margin:7px 0 15px; font-size:12px; }
+.device-group-empty { padding:18px 0; font-size:12px; }
+.device-note-badge {
+  display:inline-block;
+  max-width:100%;
+  padding:2px 8px;
+  border:1px solid color-mix(in srgb,var(--adaptive-ink,var(--ink)) 14%,transparent);
+  border-radius:7px;
+  background:color-mix(in srgb,var(--adaptive-ink,var(--ink)) 5%,transparent);
+  color:var(--adaptive-ink,var(--ink));
+  font-size:11px;
+  font-weight:520;
+  line-height:1.6;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.preset-check .device-note-badge, .spatial-heading .device-note-badge { margin-top:5px; }
+.device-card[data-available=false] .device-controls,
+.device-card[data-available=false] .eq-controls { display:none; }
+.device-card[data-available=false] .device-icon {
+  color:var(--adaptive-secondary,var(--muted));
+  background:color-mix(in srgb,var(--adaptive-ink,var(--ink)) 5%,transparent);
+}
+.device-card[data-available=false] .device-subtitle { color:var(--adaptive-secondary,var(--muted)); }
+.device-note-editor { font-size:13px; }
+.device-note-editor .device-note-original { margin:0; font-size:15px; font-weight:600; overflow-wrap:anywhere; }
+.device-note-identity { margin:13px 0 21px; color:var(--muted); font-size:12px; }
+.device-note-identity summary { cursor:pointer; padding:5px 0; }
+.device-note-identity p { padding:9px 12px; border-radius:10px; background:var(--soft-fill); color:var(--ink); overflow-wrap:anywhere; user-select:text; }
+.device-note-label { display:block; margin-bottom:7px; font-weight:600; }
+#device-note-input { width:100%; min-height:44px; padding:9px 12px; border:1px solid var(--line); border-radius:12px; background:var(--soft-fill); color:var(--ink); font-size:14px; }
+.device-note-editor .device-note-count { margin:5px 0; text-align:right; font-variant-numeric:tabular-nums; }
+.device-note-footer { display:flex; justify-content:flex-end; align-items:center; gap:10px; margin-top:22px; }
+.device-note-footer button { min-height:42px; }
+.toast { display:flex; align-items:flex-start; gap:12px; width:max-content; padding:15px 14px 15px 19px; border-radius:18px; }
+.toast-content { min-width:0; max-height:min(360px,60dvh); overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; padding-right:3px; }
+#toast-title { display:block; margin-bottom:5px; font-size:14px; line-height:1.6; }
+#toast-message { white-space:pre-line; overflow-wrap:anywhere; font-size:13px; line-height:1.75; }
+#toast-close { display:grid; place-items:center; width:30px; height:30px; flex:none; margin-top:-3px; padding:4px; border:0; border-radius:9px; background:#ffffff12; color:#fff; }
+#toast-close svg { width:17px; height:17px; }
+#toast-close:hover { background:#ffffff24; }
+#toast-details { margin-top:7px; border:0; padding:4px 0; min-height:30px; color:#fff; background:transparent; font-size:12px; font-weight:600; text-decoration:underline; text-underline-offset:4px; }
+.notice-details { display:block; width:100%; height:260px; min-height:140px; max-height:45dvh; resize:vertical; padding:12px; border:1px solid var(--line); border-radius:12px; background:var(--soft-fill); color:var(--ink); font:12px/1.7 "Segoe UI","Microsoft YaHei UI",sans-serif; white-space:pre-wrap; overflow-wrap:anywhere; }
+.notice-details:focus-visible { outline:3px solid var(--focus); outline-offset:3px; }
+@media(max-width:560px) {
+  .device-group-heading { align-items:flex-start; flex-wrap:wrap; gap:4px; }
+  .device-note-badge { font-size:11px; }
+  .toast { bottom:12px; max-width:calc(100vw - 24px); }
+}

@@ -50,6 +50,7 @@ public sealed class AudioEngine : IDisposable
 
     private bool _desiredMute;
     public string? VolumeControlError { get; private set; }
+    public string? LastOutputError { get; private set; }
 
     public string? SourceDeviceId => _capture.SourceDeviceId;
     public string? CaptureError { get; private set; }
@@ -312,6 +313,7 @@ public sealed class AudioEngine : IDisposable
         double bassBoostDb = 0, double trebleDb = 0, bool isMono = false, SpatialProfile? spatial = null,
         bool explicitReconnect = false)
     {
+        LastOutputError = null;
         spatial?.Validate();
         OutputChannel? stoppedChannel = null;
         lock (_lock)
@@ -357,9 +359,14 @@ public sealed class AudioEngine : IDisposable
                 _channels[deviceId] = channel;
                 pendingChannel = null;
             }
-            catch (NotSupportedException) { return AddOutputResult.UnsupportedFormat; }
-            catch (Exception)
+            catch (NotSupportedException ex)
             {
+                LastOutputError = AudioFailure.Describe(ex, deviceId, "建立播放连接");
+                return AddOutputResult.UnsupportedFormat;
+            }
+            catch (Exception ex)
+            {
+                LastOutputError = AudioFailure.Describe(ex, deviceId, "建立播放连接");
                 return AddOutputResult.DeviceUnavailable;
             }
             finally { try { pendingChannel?.Dispose(); } catch { /* Preserve the connection result. */ } }
@@ -503,7 +510,9 @@ public sealed class AudioEngine : IDisposable
                 throw new InvalidOperationException("音源音量控制不可用");
             lock (_lock)
             {
-                endpointVolume.Mute = muted;
+                // Avoid repeating a native state change when the source is already audible.
+                if (endpointVolume.Mute != muted) endpointVolume.Mute = muted;
+                if (endpointVolume.Mute != muted) throw new InvalidOperationException("Windows 未确认新的主音源静音状态。");
                 _desiredMute = muted;
                 if (!muted && SourceDeviceId is { } sourceId) _suppressedOutputs.Remove(sourceId);
                 foreach (var (id, channel) in _channels) channel.Volume = PlaybackGain(id);
@@ -680,7 +689,8 @@ public sealed class AudioEngine : IDisposable
             try
             {
                 var volume = _capture.SourceEndpointVolume ?? throw new InvalidOperationException("原音源音量控制已不可用。");
-                volume.Mute = _sourceMuteBeforeCalibration;
+                if (volume.Mute != _sourceMuteBeforeCalibration) volume.Mute = _sourceMuteBeforeCalibration;
+                if (volume.Mute != _sourceMuteBeforeCalibration) throw new InvalidOperationException("Windows 未确认恢复后的主音源静音状态。");
             }
             catch (Exception ex) { errors.Add("无法恢复原音源静音状态：" + ex.Message); }
             CalibrationRestoreWarning = errors.Count == 0 ? null : string.Join("；", errors);

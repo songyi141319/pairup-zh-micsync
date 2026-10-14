@@ -71,6 +71,7 @@ public partial class MainWindow : Window
         };
         Closed += (_, _) =>
         {
+            StopDeviceWatch();
             _volumeSyncTimer.Stop();
             _visualizer?.Stop();
             _audioEngine.Dispose();
@@ -100,9 +101,10 @@ public partial class MainWindow : Window
             // Start capture immediately so the visualizer has real audio to react to right away,
             // instead of only once the user connects a device or touches mute.
             try { _audioEngine.EnsureCaptureStarted(); }
-            catch (InvalidOperationException ex) { MessageBox.Show(ex.Message, "声屿", MessageBoxButton.OK, MessageBoxImage.Warning); }
+            catch (InvalidOperationException ex) { _deviceConnectionWarning = ex.Message; RefreshStatusText(); }
             SyncWindowsVolumes(followSourceChanges: false, resetSourceBaseline: true);
             _volumeSyncTimer.Start();
+            StartDeviceWatch();
             _visualizer = new LayeredWaveVisualizer(VisualizerCanvas, _audioEngine);
             _visualizer.Start();
 
@@ -557,25 +559,43 @@ public partial class MainWindow : Window
 
     private void MasterVolume_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        if (_uiPreview || _isRestoringSettings || _reflectingWindowsVolume) return;
+        // The hidden legacy slider is a display binding, not the Glass command path.
+        if (_legacyContent?.Visibility == Visibility.Collapsed || _isRestoringSettings || _reflectingWindowsVolume) return;
+        ApplyMasterVolume(e.NewValue, e.OldValue);
+    }
+
+    private bool ApplyMasterVolume(double percent, double? previousPercent = null)
+    {
+        var previous = previousPercent ?? _viewModel.MasterVolume;
         if (AudioBusy)
         {
             _reflectingWindowsVolume = true;
-            try { _viewModel.MasterVolume = e.OldValue; }
+            try { _viewModel.MasterVolume = previous; }
             finally { _reflectingWindowsVolume = false; }
-            return;
+            return false;
         }
-
-        if (!_audioEngine.SetMasterVolume(e.NewValue))
+        if (_uiPreview)
         {
             _reflectingWindowsVolume = true;
-            try { _viewModel.MasterVolume = e.OldValue; }
+            try
+            {
+                _viewModel.MasterVolume = percent;
+                foreach (var device in _viewModel.Devices.Where(d => d.IsConnected || d.IsSystemDefault)) device.Volume = percent;
+            }
             finally { _reflectingWindowsVolume = false; }
+            return true;
         }
-        else _lastSourceVolume = e.NewValue; // This request has already been broadcast.
-        SyncWindowsVolumes(followSourceChanges: false);
+
+        // Both interfaces execute the Windows write directly. Display and remember the
+        // observed device value, including hardware quantization, rather than the request.
+        var applied = _audioEngine.SetMasterVolume(percent);
+        _reflectingWindowsVolume = true;
+        try { _viewModel.MasterVolume = previous; }
+        finally { _reflectingWindowsVolume = false; }
+        SyncWindowsVolumes(followSourceChanges: false, resetSourceBaseline: true);
         RefreshStatusText();
         SaveSettings();
+        return applied;
     }
 
     /// <summary>Connected devices float to the top of the main list; ties break alphabetically.</summary>
@@ -645,13 +665,17 @@ public partial class MainWindow : Window
                     }
                     else if (result == AddOutputResult.DeviceUnavailable)
                     {
-                        // Set IsConnected=false first (re-enters this handler and clears IsOutOfRange
-                        // via the else-branch), then set IsOutOfRange=true after so it isn't wiped out.
+                        var connectionError = _audioEngine.LastOutputError ?? $"暂时无法建立“{device.Name}”的播放连接，请刷新设备后重试。";
                         device.IsConnected = false;
-                        device.IsOutOfRange = true;
-                        MessageBox.Show(
-                            $"暂时无法连接“{device.Name}”。请检查它是否超出蓝牙范围或已关闭；重新连接前，它会显示为“超出范围”。",
-                            "声屿", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        device.IsOutOfRange = device.State != NAudio.CoreAudioApi.DeviceState.Active;
+                        device.SyncStatusText = "播放连接未建立";
+                        device.SyncDetailsText = connectionError;
+                        _deviceConnectionWarning = connectionError;
+                        if (!_isRestoringSettings)
+                        {
+                            if (_glassReady) _ = GlassNoticeAsync(new { message = connectionError, error = true });
+                            else MessageBox.Show(connectionError, "声屿", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
                     }
                     else if (result == AddOutputResult.UnsupportedFormat)
                     {
