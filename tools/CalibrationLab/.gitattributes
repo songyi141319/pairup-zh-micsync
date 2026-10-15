@@ -1,0 +1,2 @@
+# Preserve the exact upstream bytes recorded in vendor/provenance.json.
+vendor/pyroomacoustics_sync.py -text
