@@ -1,0 +1,8 @@
+{
+  "python": "3.12.14",
+  "numpy": "2.4.6",
+  "pyfar": "0.7.5",
+  "repetitions": 12,
+  "sample_rate": 16000,
+  "audio_devices_opened": false
+}
