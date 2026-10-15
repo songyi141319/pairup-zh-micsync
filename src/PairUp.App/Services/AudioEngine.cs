@@ -34,6 +34,9 @@ public sealed class AudioEngine : IDisposable
     private bool _isCalibrating;
     private bool _isChangingSource;
     private string? _calibrationTargetId;
+    private bool _captureRecoveryRequested;
+    private long _captureStableSince;
+    private long _lastCapturePacketAt;
     private Dictionary<string, double>? _calibrationDelays;
     private bool _sourceMuteBeforeCalibration;
     private bool _sourceResumeSuppressed;
@@ -47,6 +50,7 @@ public sealed class AudioEngine : IDisposable
     private const double MaximumStableBacklogMs = 40;
 
     public event Action<IReadOnlyList<SyncStatus>>? SyncStatusUpdated;
+    public event Action? SourceInterrupted;
 
     private bool _desiredMute;
     public string? VolumeControlError { get; private set; }
@@ -65,8 +69,13 @@ public sealed class AudioEngine : IDisposable
 
     private void OnCaptureFailed(string message)
     {
+        bool firstFailure;
         lock (_lock)
         {
+            firstFailure = !_captureRecoveryRequested;
+            _captureRecoveryRequested = true;
+            _captureStableSince = 0;
+            _lastCapturePacketAt = 0;
             CaptureError = "音源无法继续播放：" + message;
             _queueHistory.Clear();
             foreach (var channel in _channels.Values)
@@ -75,6 +84,8 @@ public sealed class AudioEngine : IDisposable
                 channel.ClearForCalibration();
             }
         }
+        // One recovery request per failure episode; repeated failed refreshes must not loop.
+        if (firstFailure) SourceInterrupted?.Invoke();
     }
 
     public void EnsureCaptureStarted()
@@ -121,6 +132,39 @@ public sealed class AudioEngine : IDisposable
         }
         try { EnsureCaptureStarted(); return true; }
         catch { return false; } // CaptureError contains the reason; the device list can still refresh.
+    }
+
+    /// <summary>Follow Windows only after the former source is confirmed unavailable.</summary>
+    public bool TryFollowAvailableWindowsDefault(out string? notice)
+    {
+        notice = null;
+        lock (_lock)
+            if (_isCalibrating || _isChangingSource || _sourceResumeSuppressed) return false;
+        var previousId = SourceDeviceId;
+        if (previousId is null) return false;
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            // Failure to read is unknown, not proof of disconnection. The caller can retry
+            // on the next Windows notification without silently substituting an audio source.
+            using var previous = enumerator.GetDevice(previousId);
+            if (previous.State == DeviceState.Active) return false;
+            using var next = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            if (next.State != DeviceState.Active || string.Equals(next.ID, previousId, StringComparison.OrdinalIgnoreCase)) return false;
+            lock (_lock)
+                if (_suppressedOutputs.Contains(next.ID)) return false;
+            // Reconnect the selected outputs individually in LoadDevices. One failed output
+            // must not roll back a working new source. All old outputs are detached first,
+            // including the new source itself, preventing loopback feedback and format reuse.
+            ChangeSource(next.ID, Array.Empty<DeviceSettings>(), () => { }, () => { }, () => { }, () => { });
+            notice = $"原主音源已断开，已接续 Windows 当前音源“{next.FriendlyName}”。原延迟已保留，听感可能需要重新调整。";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            notice = "主音源断开后的自动接续未完成：" + ex.Message;
+            return false;
+        }
     }
 
     /// <summary>
@@ -284,7 +328,9 @@ public sealed class AudioEngine : IDisposable
         {
             if (_isCalibrating || _isChangingSource || _channels.Count == 0) return;
             // Playback threads keep consuming concurrently: take each queue reading once.
-            var snapshot = _channels.Select(p => (Id: p.Key, Channel: p.Value, Queue: p.Value.TakeQueueSnapshot())).ToArray();
+            var snapshot = _channels.Where(p => p.Value.IsPlaying)
+                .Select(p => (Id: p.Key, Channel: p.Value, Queue: p.Value.TakeQueueSnapshot())).ToArray();
+            if (snapshot.Length == 0) return;
             var target = snapshot.Min(p => p.Queue.MinimumMs);
             statuses = new List<SyncStatus>(_channels.Count);
             foreach (var item in snapshot)
@@ -648,7 +694,7 @@ public sealed class AudioEngine : IDisposable
         lock (_lock)
         {
             if (!_isCalibrating) throw new InvalidOperationException("校准未启动");
-            if (deviceId is not null && !_channels.ContainsKey(deviceId))
+            if (deviceId is not null && (!_channels.TryGetValue(deviceId, out var selected) || !selected.IsPlaying))
                 throw new InvalidOperationException("待测音箱已断开，请连接后重试");
             _calibrationTargetId = deviceId;
             foreach (var (id, channel) in _channels)
@@ -664,6 +710,17 @@ public sealed class AudioEngine : IDisposable
         // the output's known extra delay separates its probe from the source in the microphone.
         if (!TrySetSourceMuted(false)) throw new InvalidOperationException(SourceControlError ?? "无法取得音源，无法测量每台音箱");
         return actualDelayMs;
+    }
+
+    public void EnsureCalibrationConnection()
+    {
+        lock (_lock)
+        {
+            if (!_isCalibrating || !_capture.IsCapturing || CaptureError is not null)
+                throw new InvalidOperationException("音源转发中断：" + (CaptureError ?? "原音源已停止提供声音。"));
+            if (_calibrationTargetId is { } id && (!_channels.TryGetValue(id, out var channel) || !channel.IsPlaying))
+                throw new InvalidOperationException("当前待测音箱的播放连接已中断，未应用新的延迟。");
+        }
     }
 
     private void EndAcousticCalibration()
@@ -713,9 +770,29 @@ public sealed class AudioEngine : IDisposable
         lock (_lock)
         {
             if (_isChangingSource) return;
+            if (bytesRecorded > 0 && _capture.IsCapturing && CaptureError is null)
+            {
+                var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (_captureStableSince == 0 || _lastCapturePacketAt == 0 ||
+                    System.Diagnostics.Stopwatch.GetElapsedTime(_lastCapturePacketAt, now).TotalSeconds > 1)
+                    _captureStableSince = now;
+                _lastCapturePacketAt = now;
+                if (System.Diagnostics.Stopwatch.GetElapsedTime(_captureStableSince, now).TotalSeconds >= 10)
+                    _captureRecoveryRequested = false;
+            }
             foreach (var (id, channel) in _channels)
-                if (!_isCalibrating || id == _calibrationTargetId)
-                    channel.Feed(buffer, bytesRecorded);
+                if (channel.IsPlaying && (!_isCalibrating || id == _calibrationTargetId))
+                {
+                    try { channel.Feed(buffer, bytesRecorded); }
+                    catch (Exception ex)
+                    {
+                        // A renderer failure must not escape into NAudio's capture callback
+                        // and stop the shared source plus every other healthy output.
+                        channel.MarkFailed();
+                        _queueHistory.Remove(id);
+                        LastOutputError = "单台输出已暂停，其他输出继续播放：" + id + "；" + ex.Message;
+                    }
+                }
         }
 
         if (_capture.CaptureFormat is { } format)

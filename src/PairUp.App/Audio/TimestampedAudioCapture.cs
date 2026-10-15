@@ -11,15 +11,26 @@ public sealed record CapturedAudio(float[] Samples, byte[] Coverage, int SampleR
     internal IReadOnlyList<CapturePacketTiming>? PacketTimings { get; init; }
     internal int UnlocatedPackets { get; init; }
     internal CaptureBufferInfo? BufferInfo { get; init; }
+    internal TimelineRepairInfo? TimelineRepair { get; init; }
+    internal RawCaptureEvidence? RawEvidence { get; init; }
 
     public bool HasContinuousProbe(double offsetMs)
     {
-        var first = Math.Max(0, (int)Math.Round(offsetMs * SampleRate / 1000));
+        if (!double.IsFinite(offsetMs) || offsetMs < 0 || SampleRate < 8000 || Coverage.Length != Samples.Length) return false;
+        var position = Math.Round(offsetMs * SampleRate / 1000);
+        if (position >= Coverage.Length) return false;
+        var first = (int)position;
         var count = (int)Math.Round(AcousticDelayEstimator.ProbeDurationSeconds * SampleRate);
-        if (first + count > Coverage.Length) return false;
+        if (count <= 0 || (long)first + count > Coverage.Length || HasUnsafeTiming(first, count)) return false;
         var valid = 0;
         for (var i = first; i < first + count; i++) if (Coverage[i] == 1) valid++;
         return valid >= count * 0.995;
+    }
+    internal bool HasUnsafeTiming(int first, int count)
+    {
+        if (UnlocatedPackets > 0 || first < 0 || count <= 0 || (long)first + count > Coverage.Length) return true;
+        for (var i = first; i < first + count; i++) if (Coverage[i] > 1) return true;
+        return false;
     }
     public double AbsoluteMilliseconds(double offsetMs) => StartQpc / 10000.0 + offsetMs;
 
@@ -85,7 +96,7 @@ public sealed record CapturedAudio(float[] Samples, byte[] Coverage, int SampleR
         }
         return result + FormattableString.Invariant(
             $" 包统计：时间戳异常 {timestampErrors} 包、不连续标记 {discontinuities} 包；可比较的包边界 {comparedBoundaries} 个，设备帧序号前跳 {deviceForwardJumps} 次、回退 {deviceBackwardJumps} 次；时间映射空隙 {mappingGapFrames * 1000.0 / SampleRate:F3} 毫秒、重叠 {mappingOverlapFrames * 1000.0 / SampleRate:F3} 毫秒，其中帧序号连续但映射有空隙 {continuousDeviceWithTimelineGap} 处；相邻包接收间隔最大 {maximumReceiveIntervalMs:F3} 毫秒。整次录音窗口另有 {UnlocatedPackets} 包时间戳非正、无法定位（按接收时间计入）。这些统计不等同于设备断开。") +
-            (BufferInfo?.Describe(SampleRate) ?? " 无缓冲区统计。");
+            (BufferInfo?.Describe(SampleRate) ?? " 无缓冲区统计。") + (TimelineRepair?.Describe() ?? string.Empty);
     }
 }
 
@@ -113,12 +124,10 @@ public sealed class TimestampedAudioCapture : IDisposable
 {
     private const long RequestedBufferDuration = 200000;
     private const int PollIntervalMs = 3;
-    private sealed record Packet(long Start, float[] Samples, bool Invalid, long DevicePosition,
-        AudioClientBufferFlags Flags, long ReceivedAtQpc);
     private readonly string _deviceId;
     private readonly bool _loopback;
     private readonly object _gate = new();
-    private readonly List<Packet> _packets = new();
+    private readonly List<CapturePacket> _packets = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _worker;
@@ -162,32 +171,29 @@ public sealed class TimestampedAudioCapture : IDisposable
             {
                 while (!_stop.IsCancellationRequested)
                 {
-                    while (reader.GetNextPacketSize() > 0)
+                    while (!_stop.IsCancellationRequested && reader.GetNextPacketSize() > 0)
                     {
                         var pointer = reader.GetBuffer(out var frames, out var packetFlags, out var devicePosition, out var timestamp);
                         var receivedAtQpc = NowQpc;
+                        byte[] raw;
                         try
                         {
                             if (frames == 0) continue;
-                            var raw = new byte[frames * format.BlockAlign];
+                            raw = new byte[checked(frames * format.BlockAlign)];
                             if (!packetFlags.HasFlag(AudioClientBufferFlags.Silent)) Marshal.Copy(pointer, raw, 0, raw.Length);
-                            var samples = DecodeMono(raw, format);
-                            var invalid = timestamp <= 0 || packetFlags.HasFlag(AudioClientBufferFlags.TimestampError)
-                                || packetFlags.HasFlag(AudioClientBufferFlags.DataDiscontinuity);
-                            // Keep the existing conservative whole-packet rejection. Microsoft defines
-                            // DataDiscontinuity relative to the previous device position; it does not
-                            // guarantee that the remainder has trustworthy absolute probe timing.
-                            // https://learn.microsoft.com/windows/win32/api/audioclient/ne-audioclient-_audclnt_bufferflags
-                            lock (_gate)
-                            {
-                                _packets.Add(new(timestamp, samples, invalid, devicePosition, packetFlags, receivedAtQpc));
-                                var earliest = timestamp - 150000000;
-                                _packets.RemoveAll(p => p.Start <= 0
-                                    ? p.ReceivedAtQpc < receivedAtQpc - 150000000
-                                    : p.Start + (long)(p.Samples.Length * 10000000.0 / SampleRate) < earliest);
-                            }
                         }
                         finally { reader.ReleaseBuffer(frames); }
+                        // Native buffer ownership ends before decoding/allocation/cache work.
+                        var samples = DecodeMono(raw, format);
+                        var invalid = timestamp <= 0 || packetFlags.HasFlag(AudioClientBufferFlags.TimestampError)
+                            || packetFlags.HasFlag(AudioClientBufferFlags.DataDiscontinuity);
+                        // DataDiscontinuity does not guarantee trustworthy absolute probe timing.
+                        // https://learn.microsoft.com/windows/win32/api/audioclient/ne-audioclient-_audclnt_bufferflags
+                        lock (_gate)
+                        {
+                            _packets.Add(new(timestamp, samples, invalid, devicePosition, packetFlags, receivedAtQpc));
+                            _packets.RemoveAll(p => p.ReceivedAtQpc < receivedAtQpc - 150000000);
+                        }
                     }
                     _stop.Token.WaitHandle.WaitOne(PollIntervalMs);
                 }
@@ -203,7 +209,10 @@ public sealed class TimestampedAudioCapture : IDisposable
 
     public CapturedAudio Snapshot(long startQpc, long endQpc)
     {
-        Packet[] packets;
+        CapturePacket[] packets;
+        if (SampleRate < 8000 || SampleRate > 384000 || startQpc <= 0 || endQpc <= startQpc ||
+            (double)endQpc - startQpc > 120000000)
+            throw new ArgumentOutOfRangeException(nameof(endQpc), "录音时间窗口或采样率无效。");
         lock (_gate)
         {
             if (_failure is not null)
@@ -211,7 +220,9 @@ public sealed class TimestampedAudioCapture : IDisposable
                     _failure.Message + $"（错误代码 0x{_failure.HResult:X8}）。原延迟已保留。", _failure);
             // Packets and their sample arrays are immutable after insertion. Build the snapshot
             // and its diagnostics outside the gate so this work cannot block packet collection.
-            packets = _packets.ToArray();
+            // Include nearby clock anchors, not unrelated earlier calibration attempts.
+            packets = _packets.Where(p => p.ReceivedAtQpc >= startQpc - 10000000 &&
+                p.ReceivedAtQpc <= endQpc + 10000000).ToArray();
         }
         var count = (int)Math.Ceiling((endQpc - startQpc) * SampleRate / 10000000.0);
         if (count <= 0 || count > SampleRate * 12) throw new ArgumentOutOfRangeException(nameof(endQpc));
@@ -219,7 +230,7 @@ public sealed class TimestampedAudioCapture : IDisposable
         var coverage = new byte[count];
         var timings = new List<CapturePacketTiming>(packets.Length);
         var unlocatedPackets = 0;
-        Packet? previous = null;
+        CapturePacket? previous = null;
         var previousDestination = 0;
         foreach (var packet in packets)
         {
@@ -231,7 +242,8 @@ public sealed class TimestampedAudioCapture : IDisposable
                 // cast a huge negative offset to int and accidentally copy it to sample zero.
                 continue;
             }
-            var destination = (int)Math.Round((packet.Start - startQpc) * SampleRate / 10000000.0);
+            var destination = (int)Math.Clamp(Math.Round(((double)packet.Start - startQpc) * SampleRate / 10000000.0),
+                int.MinValue / 2, int.MaxValue / 2);
             var timestampError = packet.Flags.HasFlag(AudioClientBufferFlags.TimestampError);
             var timingComparable = packet.Start > 0 && !timestampError && previous is not null && previous.Start > 0 &&
                 !previous.Flags.HasFlag(AudioClientBufferFlags.TimestampError);
@@ -243,17 +255,10 @@ public sealed class TimestampedAudioCapture : IDisposable
             previous = packet;
             previousDestination = destination;
 
-            var source = Math.Max(0, -destination);
-            var start = Math.Max(0, destination);
-            var copy = Math.Min(packet.Samples.Length - source, count - start);
-            if (copy > 0)
-            {
-                Array.Copy(packet.Samples, source, samples, start, copy);
-                Array.Fill(coverage, packet.Invalid ? (byte)2 : (byte)1, start, copy);
-            }
         }
+        var repair = CaptureTimeline.Render(packets, SampleRate, startQpc, samples, coverage, out var rawEvidence);
         return new(samples, coverage, SampleRate, startQpc)
-            { PacketTimings = timings, UnlocatedPackets = unlocatedPackets, BufferInfo = _bufferInfo };
+            { PacketTimings = timings, UnlocatedPackets = unlocatedPackets, BufferInfo = _bufferInfo, TimelineRepair = repair, RawEvidence = rawEvidence };
     }
 
     private static T? ReadDiagnostic<T>(Func<T> read) where T : struct

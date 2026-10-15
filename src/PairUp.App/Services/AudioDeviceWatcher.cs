@@ -25,7 +25,11 @@ internal sealed class AudioDeviceWatcher : IMMNotificationClient, IDisposable
     public void OnDeviceStateChanged(string deviceId, DeviceState newState) => Notify();
     public void OnDeviceAdded(string deviceId) => Notify();
     public void OnDeviceRemoved(string deviceId) => Notify();
-    public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId) { }
+    public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId)
+    {
+        // Windows can choose its replacement default after the removal notification.
+        if (flow == DataFlow.Render && role == Role.Multimedia) Notify();
+    }
     public void OnPropertyValueChanged(string deviceId, PropertyKey key) { }
 
     public void Dispose()

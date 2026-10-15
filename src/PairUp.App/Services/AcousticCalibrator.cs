@@ -32,6 +32,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         IDisposable? routing = null;
         TimestampedAudioCapture? microphone = null;
         TimestampedAudioCapture? reference = null;
+        ProbePlayback? playback = null;
         var restoreWarnings = new List<string>();
         try
         {
@@ -51,10 +52,21 @@ public sealed class AcousticCalibrator(AudioEngine engine)
                 var percent = levels[attempt];
                 volumes.ApplyLevel(percent, options.Mode == CalibrationVolumeMode.Manual);
                 progress?.Report($"主音源与选中音箱临时统一为 {percent}%。结束后恢复各自原音量和静音状态。");
+                if (playback is null)
+                {
+                    // Keep one silent stream alive for the whole calibration. Reopening a
+                    // Bluetooth stream for every probe needlessly changes native sessions.
+                    playback = new ProbePlayback(sourceId, cancellationToken);
+                    volumes.PrepareOwnSessions("建立本次统一测试连接后");
+                    playback.Start();
+                    await Task.Delay(600, cancellationToken);
+                    playback.EnsurePlaying();
+                    volumes.EnsureReady("测试连接预热后");
+                }
                 await Task.Delay(250, cancellationToken);
                 try
                 {
-                    return await MeasureTargetsAsync(sourceId, targets, microphone, reference, volumes, percent, progress, cancellationToken);
+                    return await MeasureTargetsAsync(sourceId, targets, microphone, reference, playback, volumes, percent, progress, cancellationToken);
                 }
                 catch (AcousticWeakSignalException ex)
                 {
@@ -84,6 +96,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         {
             if (routing is not null)
                 Restore(engine.SilenceCalibrationOutputs, "待测音箱未能完全停止转发，请检查播放状态。", restoreWarnings);
+            Restore(() => playback?.Dispose(), "测试播放连接未能正常关闭，请检查播放状态。", restoreWarnings);
             Restore(() => reference?.Dispose(), "内部参考声音未能正常停止，请关闭校准窗口后检查。", restoreWarnings);
             Restore(() => microphone?.Dispose(), "麦克风收音未能正常停止，请关闭校准窗口后检查。", restoreWarnings);
             Restore(volumes.Dispose, "部分原音量未能恢复，请检查 Windows 设备音量。", restoreWarnings);
@@ -108,7 +121,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
     }
 
     private async Task<AcousticCalibrationReport> MeasureTargetsAsync(string sourceId, IReadOnlyList<CalibrationTarget> targets,
-        TimestampedAudioCapture microphone, TimestampedAudioCapture reference, CalibrationVolumeScope volumes, int percent,
+        TimestampedAudioCapture microphone, TimestampedAudioCapture reference, ProbePlayback playback, CalibrationVolumeScope volumes, int percent,
         IProgress<string>? progress, CancellationToken cancellationToken)
     {
         var measurements = new List<AcousticMeasurement>();
@@ -134,7 +147,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
                     volumes.EnsureReady("选择待测音箱并确认主音源解除静音后");
                     await Task.Delay(250, cancellationToken);
                     volumes.EnsureReady("等待播放连接稳定后");
-                    var result = await MeasureProbeAsync(sourceId, microphone, reference, volumes, separation, cancellationToken);
+                    var result = await MeasureProbeAsync(playback, microphone, reference, volumes, separation, cancellationToken);
                     CheckForwarding();
                     volumes.EnsureReady("本次测量完成后");
                     arrivals.Add(result.ArrivalMs);
@@ -166,47 +179,34 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         return new(measurements, plan);
     }
 
-    private static async Task<(double ArrivalMs, double Confidence)> MeasureProbeAsync(string sourceId,
+    private async Task<(double ArrivalMs, double Confidence)> MeasureProbeAsync(ProbePlayback playback,
         TimestampedAudioCapture microphone, TimestampedAudioCapture reference, CalibrationVolumeScope volumes,
         double separationMs, CancellationToken cancellationToken)
     {
-        using var enumerator = new MMDeviceEnumerator();
-        using var source = enumerator.GetDevice(sourceId);
-        WaveFormat format;
-        using (var client = source.AudioClient) format = client.MixFormat;
-        var signal = new ProbeSampleProvider(format.SampleRate, format.Channels);
-        using var output = SharedAudioOutput.Open(source, signal.ToWaveProvider(), 10, out var compatibilityMode, cancellationToken);
-        volumes.EnsureReady(compatibilityMode ? "测试播放初始化后（兼容播放，100毫秒缓冲）" : "测试播放初始化后");
-        // Init may create a new Windows mixer session. Capture its original state before
-        // normalizing this process's session; endpoint volume remains capped at the chosen level.
-        volumes.PrepareOwnSessions("测试播放初始化并调整声屿应用音量后");
-        var stopped = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        output.PlaybackStopped += (_, args) => stopped.TrySetResult(args.Exception);
+        playback.EnsurePlaying();
+        volumes.EnsureReady("本次测试音开始前");
         var durationMs = (int)Math.Ceiling(4900 + separationMs);
-        var begin = TimestampedAudioCapture.NowQpc;
+        var begin = playback.Arm();
         try
         {
-            try { output.Play(); }
-            catch (Exception ex) { throw new InvalidOperationException("无法开始播放测试音：" + ex.Message, ex); }
             volumes.EnsureReady("启动测试播放后");
             var duration = Task.Delay(durationMs, cancellationToken);
             while (!duration.IsCompleted)
             {
-                await Task.WhenAny(duration, stopped.Task, Task.Delay(250, cancellationToken));
+                await Task.WhenAny(duration, playback.Stopped, Task.Delay(250, cancellationToken));
                 cancellationToken.ThrowIfCancellationRequested();
-                if (stopped.Task.IsCompleted)
-                {
-                    var error = await stopped.Task;
-                    throw new InvalidOperationException("测试音播放提前停止：" + (error?.Message ?? "请检查音源连接"), error);
-                }
+                playback.EnsurePlaying();
+                CheckForwarding();
                 volumes.EnsureReady("测试音播放中", freshRead: false);
             }
             await duration;
             volumes.EnsureReady("测试音播放结束前");
         }
-        finally { output.Stop(); }
+        finally { playback.Disarm(); }
         await Task.Delay(100, cancellationToken);
-        volumes.EnsureReady("测试音停止后、信号分析前");
+        playback.EnsurePlaying();
+        CheckForwarding();
+        volumes.EnsureReady("测试音结束后、信号分析前");
         var end = begin + durationMs * 10000L;
         var refAudio = reference.Snapshot(begin, end);
         var micAudio = microphone.Snapshot(begin, end);
@@ -215,8 +215,7 @@ public sealed class AcousticCalibrator(AudioEngine engine)
 
     private void CheckForwarding()
     {
-        if (engine.CaptureError is { } captureError)
-            throw new InvalidOperationException("音源转发中断：" + captureError);
+        engine.EnsureCalibrationConnection();
     }
 
     private static bool SameDevice(string first, string second) => string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
@@ -227,30 +226,85 @@ public sealed class AcousticCalibrator(AudioEngine engine)
         catch { warnings.Add(warning); }
     }
 
+    private sealed class ProbePlayback : IDisposable
+    {
+        private readonly MMDevice _device;
+        private readonly WasapiOut _output;
+        private readonly ProbeSampleProvider _signal;
+        private readonly TaskCompletionSource<Exception?> _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Stopped => _stopped.Task;
+
+        public ProbePlayback(string sourceId, CancellationToken cancellationToken)
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            _device = enumerator.GetDevice(sourceId);
+            try
+            {
+                WaveFormat format;
+                using (var client = _device.AudioClient) format = client.MixFormat;
+                _signal = new(format.SampleRate, format.Channels);
+                _output = SharedAudioOutput.Open(_device, _signal.ToWaveProvider(), 10, out _, cancellationToken);
+                _output.PlaybackStopped += (_, args) => _stopped.TrySetResult(args.Exception);
+            }
+            catch { _device.Dispose(); throw; }
+        }
+
+        public void Start() => _output.Play(); // Provider remains silent until explicitly armed.
+        public long Arm() { EnsurePlaying(); return _signal.Arm(); }
+        public void Disarm() => _signal.Disarm();
+        public void EnsurePlaying()
+        {
+            if (!_stopped.Task.IsCompleted && _output.PlaybackState == PlaybackState.Playing) return;
+            var error = _stopped.Task.IsCompletedSuccessfully ? _stopped.Task.Result : null;
+            throw new InvalidOperationException("测试播放连接中断：" + (error?.Message ?? "请检查主音源连接。"), error);
+        }
+        public void Dispose()
+        {
+            _signal.Disarm();
+            try { _output.Stop(); }
+            finally { try { _output.Dispose(); } finally { _device.Dispose(); } }
+        }
+    }
+
     private sealed class ProbeSampleProvider : ISampleProvider
     {
         private readonly float[] _probe;
         private readonly int _leadFrames;
-        private readonly int _totalFrames;
-        private int _position;
+        private readonly object _gate = new();
+        private int _position = -1;
         public WaveFormat WaveFormat { get; }
         public ProbeSampleProvider(int sampleRate, int channels)
         {
             WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
             _probe = AcousticDelayEstimator.CreateProbe(sampleRate);
             _leadFrames = (int)(sampleRate * 0.65);
-            _totalFrames = sampleRate * 10;
         }
+        public long Arm()
+        {
+            lock (_gate)
+            {
+                var begin = TimestampedAudioCapture.NowQpc;
+                _position = 0;
+                return begin;
+            }
+        }
+        public void Disarm() { lock (_gate) _position = -1; }
         public int Read(float[] buffer, int offset, int count)
         {
-            var frames = Math.Min(count / WaveFormat.Channels, _totalFrames - _position);
-            for (var i = 0; i < frames; i++)
+            lock (_gate)
             {
-                var index = _position++ - _leadFrames;
-                var value = index >= 0 && index < _probe.Length ? _probe[index] : 0;
-                for (var channel = 0; channel < WaveFormat.Channels; channel++) buffer[offset + i * WaveFormat.Channels + channel] = value;
+                Array.Clear(buffer, offset, count);
+                if (_position < 0) return count;
+                var frames = count / WaveFormat.Channels;
+                for (var i = 0; i < frames; i++)
+                {
+                    var index = _position++ - _leadFrames;
+                    if (index >= _probe.Length) { _position = -1; break; }
+                    var value = index >= 0 ? _probe[index] : 0;
+                    for (var channel = 0; channel < WaveFormat.Channels; channel++) buffer[offset + i * WaveFormat.Channels + channel] = value;
+                }
+                return count; // Silent between probes; never close/reopen the native stream.
             }
-            return frames * WaveFormat.Channels;
         }
     }
 

@@ -2,10 +2,11 @@
 
 面向 Windows 的多音箱同时播放工具。本仓库保存中文界面、精细延迟调节、软件积压修复和麦克风校准功能，方便在其他电脑使用或继续开发。当前开发版新增“声屿”玻璃界面、音乐音场分工和摆放教程。
 
-**当前开发预览：0.4.0-preview.5。包含声屿中文玻璃界面、音乐音场、可调长度的彩色波形与玻璃球。真实音箱听感、完整多音箱校准和长时间同步仍待实测。**
+**当前开发预览：0.4.0-preview.6。包含声屿中文玻璃界面、音乐音场、可调长度的彩色波形与玻璃球。真实音箱听感、完整多音箱校准和长时间同步仍待实测。**
 
 ## 本轮新增
 
+- preview.6：修复连续录音的时间排列，保留99.5%覆盖率及原始失真检查；一次校准复用同一个测试播放连接，减少反复打开蓝牙设备。原主音源确认断开后可接续Windows当前默认音源，普通输出错误单独隔离。详情与未验收范围见[修复说明](docs/CALIBRATION-TIMELINE-preview.6.zh-CN.md)。
 - 校准页重新整理：设备、音量、进度和结果分区，详细原因可折叠、复制。
 - 试听音量自定义；校准默认自动从 20% 开始，也可手动固定，或按夜间、早间、日间设定起始与上限。
 - 修正时间记录异常的误导提示，补充纯数字诊断；麦克风反复校准失败的实际原因仍待诊断确认。
@@ -29,10 +30,10 @@
 
 ## 下载安装（推荐）
 
-- **[下载声屿 EXE 安装包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.5/Shengyu-Setup-0.4.0-preview.5-win-x64.exe)**
-- [下载免安装便携包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.5/Shengyu-Portable-0.4.0-preview.5-win-x64.zip)
-- [下载完整源码包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.5/Shengyu-Source-0.4.0-preview.5.zip)
-- [查看本次发布、截图、中文教程和校验文件](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.4.0-preview.5)
+- **[下载声屿 EXE 安装包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.6/Shengyu-Setup-0.4.0-preview.6-win-x64.exe)**
+- [下载免安装便携包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.6/Shengyu-Portable-0.4.0-preview.6-win-x64.zip)
+- [下载完整源码包](https://github.com/songyi141319/pairup-zh-micsync/releases/download/v0.4.0-preview.6/Shengyu-Source-0.4.0-preview.6.zip)
+- [查看本次发布、截图、中文教程和校验文件](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.4.0-preview.6)
 - [旧版本下载与回退](https://github.com/songyi141319/pairup-zh-micsync/releases/tag/v0.3.6-zh.20261002-preview.2)
 
 适用于 Windows 10 / 11 的 x64 电脑。安装包已自带运行所需的 .NET 组件，双击下载的 `Shengyu-Setup-…-win-x64.exe`，按中文向导安装，再从桌面或开始菜单打开“声屿 · 多音箱音乐空间”。不需要编译源码或安装开发工具。

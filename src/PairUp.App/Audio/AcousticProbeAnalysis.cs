@@ -13,6 +13,7 @@ public static class AcousticProbeAnalysis
     {
         if (!double.IsFinite(separationMs) || separationMs < 0 || separationMs > FixedDelaySampleProvider.MaximumDelayMs)
             throw new ArgumentOutOfRangeException(nameof(separationMs));
+        EnsureRawSignalSafe(reference, 200, 1500, "电脑内部参考声音");
         var refMatch = AcousticDelayEstimator.Find(reference.Samples, reference.SampleRate, 200, 1500);
         if (!refMatch.IsReliable)
         {
@@ -30,6 +31,7 @@ public static class AcousticProbeAnalysis
         var relativeReference = referenceTime - microphone.StartQpc / 10000.0;
         var minimumMicMs = relativeReference + separationMs - 100;
         var maximumMicMs = relativeReference + separationMs + 3900;
+        EnsureRawSignalSafe(microphone, minimumMicMs, maximumMicMs, "麦克风录音");
         var micMatch = AcousticDelayEstimator.Find(microphone.Samples, microphone.SampleRate, minimumMicMs, maximumMicMs);
         if (!micMatch.IsReliable)
             ThrowUnreliable(micMatch, microphone, minimumMicMs, maximumMicMs, "麦克风录音",
@@ -53,12 +55,13 @@ public static class AcousticProbeAnalysis
 
     private static void EnsureContinuousForRetry(CapturedAudio audio, double minimumMs, double maximumMs, string captureName)
     {
+        EnsureRawSignalSafe(audio, minimumMs, maximumMs, captureName);
         // Missing/invalid capture packets are filled with zeros. Those zeros must never be
         // mistaken for a genuinely quiet room and cause a volume increase.
         var first = Math.Max(0, (int)Math.Round(minimumMs * audio.SampleRate / 1000));
         var end = Math.Min(audio.Samples.Length, (int)Math.Ceiling((maximumMs / 1000 + AcousticDelayEstimator.ProbeDurationSeconds) * audio.SampleRate));
         if (audio.SampleRate < 8000 || audio.Coverage.Length != audio.Samples.Length || first >= end ||
-            audio.Samples.Any(sample => !float.IsFinite(sample)))
+            audio.Samples.Any(sample => !float.IsFinite(sample)) || audio.HasUnsafeTiming(first, end - first))
             throw new InvalidOperationException(captureName + "的时间记录不完整，不能通过提高音量重试。原延迟已保留。");
         if (AcousticDelayEstimator.HasClipping(audio.Samples, first, end, audio.SampleRate))
             throw new InvalidOperationException(captureName + "过响失真，不能通过提高音量重试。请调整音量或麦克风位置后重测。");
@@ -67,5 +70,13 @@ public static class AcousticProbeAnalysis
         if (valid < (end - first) * 0.995)
             throw new InvalidOperationException(captureName + "的时间记录不够连续，不能通过提高音量重试。尚不能据此判断设备断开，原延迟已保留。\n" +
                 audio.DescribeCoverage(first, end - first));
+    }
+
+    private static void EnsureRawSignalSafe(CapturedAudio audio, double minimumMs, double maximumMs, string name)
+    {
+        var first = (int)Math.Clamp(Math.Floor(minimumMs * audio.SampleRate / 1000), 0, audio.Samples.Length);
+        var end = (int)Math.Clamp(Math.Ceiling((maximumMs / 1000 + AcousticDelayEstimator.ProbeDurationSeconds) * audio.SampleRate), 0, audio.Samples.Length);
+        if (audio.RawEvidence?.HasClipping(first, end, audio.SampleRate) == true)
+            throw new InvalidOperationException(name + "的原始录音含过响失真或无效样点，不能通过提高音量重试。原延迟已保留。");
     }
 }

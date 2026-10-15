@@ -18,6 +18,7 @@ internal sealed class CalibrationVolumeScope : IDisposable
         public bool Muted { get; } = muted;
         public float AppliedVolume { get; set; }
         public bool Changed { get; set; }
+        public AudioEndpointVolumeNotificationDelegate? Notification { get; set; }
     }
 
     private sealed class SessionSnapshot(AudioSessionControl session, string deviceName, float volume, bool muted)
@@ -34,6 +35,10 @@ internal sealed class CalibrationVolumeScope : IDisposable
     private readonly Dictionary<string, (float Volume, bool Muted)> _sessionBaselines = new(StringComparer.Ordinal);
     private readonly List<string> _restoreWarnings = new();
     private readonly Queue<string> _diagnostics = new();
+    private readonly object _notificationGate = new();
+    private readonly Queue<string> _volumeNotifications = new();
+    private readonly Guid _writeContext = Guid.NewGuid();
+    private bool _notificationsClosed;
     private string? _lastDiagnostic;
     private string _baselineDescription = "尚未读取测试前音量。";
     private int? _requestedPercent;
@@ -58,7 +63,28 @@ internal sealed class CalibrationVolumeScope : IDisposable
                 var muted = device.AudioEndpointVolume.Mute;
                 if (!float.IsFinite(volume) || volume < 0 || volume > 1)
                     throw new InvalidOperationException($"无法读取“{target.Name}”的原音量，未开始校准。");
-                _endpoints.Add(new(device, target.Name, volume, muted));
+                var snapshot = new EndpointSnapshot(device, target.Name, volume, muted);
+                _endpoints.Add(snapshot);
+                device = null; // The scope owns partial notification setup too.
+                var control = snapshot.Device.AudioEndpointVolume;
+                control.NotificationGuid = _writeContext;
+                snapshot.Notification = data =>
+                {
+                    // Native callbacks only record supplied values. No COM reads/writes,
+                    // dispatcher calls or audio work are allowed here.
+                    var origin = data.EventContext == _writeContext ? "本次校准/试听写入"
+                        : data.EventContext == WindowsDeviceVolume.WriteContext ? "声屿普通音量控制写入"
+                        : "未带声屿写入标记，具体来源未知";
+                    var entry = $"{System.Diagnostics.Stopwatch.GetElapsedTime(_startedAt).TotalSeconds:0.00}s {target.Name}：" +
+                        $"{data.MasterVolume * 100:0.0}%{(data.Muted ? "，静音" : "")}；{origin}；通知标记 {data.EventContext}";
+                    lock (_notificationGate)
+                    {
+                        if (_notificationsClosed) return;
+                        if (_volumeNotifications.Count >= 64) _volumeNotifications.Dequeue();
+                        _volumeNotifications.Enqueue(entry);
+                    }
+                };
+                control.OnVolumeNotification += snapshot.Notification;
                 device = null;
             }
             finally { device?.Dispose(); }
@@ -243,8 +269,11 @@ internal sealed class CalibrationVolumeScope : IDisposable
     public string DescribeDiagnostics()
     {
         RecordCurrentVolumes("失败时，恢复原音量前");
+        string notifications;
+        lock (_notificationGate) notifications = _volumeNotifications.Count == 0 ? "本次尚未收到系统音量通知。" : string.Join("\n", _volumeNotifications);
         return _baselineDescription + "\n本次临时目标音量：" + (_requestedPercent is { } percent ? percent + "%" : "尚未设置") +
-            "\n音量阶段记录：\n" + string.Join("\n", _diagnostics);
+            "\n音量阶段记录：\n" + string.Join("\n", _diagnostics) +
+            "\n系统音量变化通知（标记不是进程身份，驱动也可能不保留标记）：\n" + notifications;
     }
 
     private static void EnsureConnected(EndpointSnapshot endpoint)
@@ -257,6 +286,7 @@ internal sealed class CalibrationVolumeScope : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        lock (_notificationGate) _notificationsClosed = true;
         // Probe playback has already stopped. Other applications remain muted until this
         // scope and the engine routing scope have both restored their original states.
         foreach (var snapshot in _sessions.Values.Reverse())
@@ -284,6 +314,9 @@ internal sealed class CalibrationVolumeScope : IDisposable
         _sessionBaselines.Clear();
         foreach (var endpoint in _endpoints.AsEnumerable().Reverse())
         {
+            if (endpoint.Notification is { } notification)
+                TryRestore(() => endpoint.Device.AudioEndpointVolume.OnVolumeNotification -= notification,
+                    $"“{endpoint.Name}”的音量观察未能完全结束。");
             if (endpoint.Changed)
             {
                 TryRestore(() =>

@@ -400,7 +400,7 @@ public partial class AcousticCalibrationWindow : Window
             _report = null;
             StepTitle.Text = "校准未完成";
             StatusText.Text = ShortMessage(ex.Message);
-            ResultsEmptyText.Text = "未应用新的延迟。请先单台试听，再检查麦克风与音箱的连接和摆放。完整原因可在技术详情中查看或复制。";
+            ResultsEmptyText.Text = FailureAdvice(ex.Message);
             CurrentVolumeText.Text = "未完成";
             AppendDetail("测量失败：" + ex);
             ProgressPanel.Visibility = Visibility.Collapsed;
@@ -542,6 +542,22 @@ public partial class AcousticCalibrationWindow : Window
     {
         var firstLine = text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.Trim() ?? "请检查设备连接和麦克风设置。";
         return firstLine.Length <= 140 ? firstLine : firstLine[..137] + "…";
+    }
+
+    private static string FailureAdvice(string text)
+    {
+        // Classify the actual failure line, not later volume snapshots or stack traces.
+        var reason = text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? text;
+        const string retained = "原延迟没有改变，详细记录已保留。";
+        if (reason.Contains("时间记录") || reason.Contains("时间排列"))
+            return "这次是录音计时未通过检查，提高音量不能解决。不需要反复试听或重配音箱。" + retained;
+        if (reason.Contains("音量或静音") || reason.Contains("临时音量"))
+            return "这次是设备音量未能保持在测量值，程序不会强行调高或反复重试。" + retained;
+        if (reason.Contains("失真") || reason.Contains("无效样点"))
+            return "这次录音失真或无效，不能继续提高音量。可降低音量或让麦克风稍远离音箱。" + retained;
+        if (reason.Contains("中断") || reason.Contains("断开") || reason.Contains("播放连接"))
+            return "这次播放或收音连接发生变化。请先确认提示中的设备恢复连接，再决定是否重测。" + retained;
+        return "这次没有得到可应用的结果，先保留现有设置；完整原因可在技术详情中查看或复制。";
     }
 
     private void Apply_Click(object sender, RoutedEventArgs e)

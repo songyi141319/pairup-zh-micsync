@@ -422,6 +422,14 @@ public partial class MainWindow : Window
                 savedSettings[previous.Id] = new(previous.Id, previous.IsConnected, previous.Volume, previous.LatencyMs,
                     previous.IsFavorite, previous.BassBoost, previous.Treble, previous.IsMono, previous.Spatial);
             var defaultDeviceId = _audioEngine.SourceDeviceId ?? _viewModel.DefaultDevice?.Id;
+            var previousSource = snapshot.Devices.FirstOrDefault(device =>
+                string.Equals(device.Id, defaultDeviceId, StringComparison.OrdinalIgnoreCase));
+            if (!AudioBusy && previousSource is not null && previousSource.State != NAudio.CoreAudioApi.DeviceState.Active)
+            {
+                if (_audioEngine.TryFollowAvailableWindowsDefault(out var recoveryNotice))
+                    defaultDeviceId = _audioEngine.SourceDeviceId;
+                if (recoveryNotice is not null) warnings.Add(recoveryNotice);
+            }
             if (defaultDeviceId is null)
             {
                 defaultDeviceId = _deviceManager.TryGetDefaultDeviceId(out var defaultWarning);

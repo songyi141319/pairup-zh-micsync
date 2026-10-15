@@ -11,6 +11,7 @@ public partial class MainWindow
 
     private void StartDeviceWatch()
     {
+        _audioEngine.SourceInterrupted += QueueDeviceRefresh;
         _deviceRefreshTimer.Tick += (_, _) =>
         {
             if (_deviceWatchClosed) { _deviceRefreshTimer.Stop(); return; }
@@ -22,23 +23,26 @@ public partial class MainWindow
         };
         try
         {
-            _deviceWatcher = new AudioDeviceWatcher(() =>
-            {
-                if (Dispatcher.HasShutdownStarted) return;
-                _ = Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    if (_deviceWatchClosed) return;
-                    _deviceRefreshTimer.Stop();
-                    _deviceRefreshTimer.Start();
-                }));
-            });
+            _deviceWatcher = new AudioDeviceWatcher(QueueDeviceRefresh);
         }
         catch { _viewModel.StatusText = "自动识别设备暂不可用，可点击刷新设备。"; }
+    }
+
+    private void QueueDeviceRefresh()
+    {
+        if (Dispatcher.HasShutdownStarted) return;
+        _ = Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_deviceWatchClosed) return;
+            _deviceRefreshTimer.Stop();
+            _deviceRefreshTimer.Start();
+        }));
     }
 
     private void StopDeviceWatch()
     {
         _deviceWatchClosed = true;
+        _audioEngine.SourceInterrupted -= QueueDeviceRefresh;
         _deviceRefreshTimer.Stop();
         try { _deviceWatcher?.Dispose(); }
         catch { /* Closing must still restore and dispose the audio engine. */ }

@@ -7,6 +7,8 @@ public sealed record DeviceVolumeState(double Percent, bool Muted);
 /// <summary>Windows endpoint volume is the single source of truth, not an extra software gain.</summary>
 public static class WindowsDeviceVolume
 {
+    // Identifies this process's ordinary endpoint writes in calibration notifications.
+    internal static readonly Guid WriteContext = Guid.NewGuid();
     public static Dictionary<string, DeviceVolumeState> Read(IEnumerable<string> deviceIds)
     {
         var result = new Dictionary<string, DeviceVolumeState>(StringComparer.OrdinalIgnoreCase);
@@ -46,6 +48,7 @@ public static class WindowsDeviceVolume
             var value = (float)(Math.Clamp(percent, 0, 100) / 100);
             if (Math.Abs(volume.MasterVolumeLevelScalar - value) < 0.0001f) return true;
             var wasMuted = volume.Mute;
+            volume.NotificationGuid = WriteContext;
             try { volume.MasterVolumeLevelScalar = value; }
             finally
             {

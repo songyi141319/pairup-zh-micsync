@@ -23,6 +23,7 @@ public sealed class OutputChannel : IDisposable
     // NAudio 2.2.1 can raise PlaybackStopped after a native exception while its public
     // PlaybackState still says Playing. Remember the event as well when deciding to reopen.
     public bool IsPlaying => !_playbackStopped && _output.PlaybackState == PlaybackState.Playing;
+    internal void MarkFailed() { _playbackStopped = true; Volume = 0; }
 
     public OutputChannel(MMDevice device, WaveFormat sourceFormat)
     {
