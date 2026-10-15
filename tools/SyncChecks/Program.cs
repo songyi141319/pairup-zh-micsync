@@ -9,7 +9,7 @@ var passed = 0;
 void Check(string name, Action check)
 {
     try { check(); Console.WriteLine("PASS: " + name); passed++; }
-    catch (Exception ex) { Console.WriteLine("FAIL: " + name + " — " + ex.Message); failed++; }
+    catch (Exception ex) { Console.WriteLine("FAIL: " + name + " — " + ex); failed++; }
 }
 void Require(bool condition, string detail) { if (!condition) throw new Exception(detail); }
 
@@ -18,6 +18,11 @@ static (OutputChannel Channel, ChannelAudioBuffer Buffer) MakeChannel(int channe
     var buffer = new ChannelAudioBuffer(WaveFormat.CreateIeeeFloatWaveFormat(48000, channels));
     // Exercise the real output queue and engine policy without opening any physical device.
     var channel = (OutputChannel)RuntimeHelpers.GetUninitializedObject(typeof(OutputChannel));
+    // A queue fixture represents a running renderer. Never construct, start or dispose a
+    // native output here: only the managed PlaybackState getter is used by engine policy.
+    var output = (WasapiOut)RuntimeHelpers.GetUninitializedObject(typeof(WasapiOut));
+    typeof(WasapiOut).GetField("playbackState", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(output, PlaybackState.Playing);
+    typeof(OutputChannel).GetField("_output", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(channel, output);
     typeof(OutputChannel).GetField("_buffer", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(channel, buffer);
     typeof(OutputChannel).GetField("_volumeProvider", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(channel,
         new NAudio.Wave.SampleProviders.VolumeSampleProvider(buffer.Samples));

@@ -41,24 +41,29 @@ internal sealed class DevicePreview
                 }
                 catch { if (!music.Any(item => ReferenceEquals(item.Session, session))) session.Dispose(); throw; }
             }
-            stage = "设置试听音量";
-            volumes.ApplyLevel(percent, manual: true);
             stage = "读取播放格式";
             WaveFormat format;
             using (var client = device.AudioClient) format = client.MixFormat;
             stage = "准备试听播放";
+            var chime = new Chime(format.SampleRate, format.Channels);
             using var output = SharedAudioOutput.Open(device,
-                new Chime(format.SampleRate, format.Channels).ToWaveProvider(), 30, out var compatibilityMode, cancellationToken);
-            volumes.PrepareOwnSessions();
-            volumes.EnsureReady(compatibilityMode ? "准备试听后（兼容播放，100毫秒缓冲）" : "准备试听后");
+                chime.ToWaveProvider(), 30, out var compatibilityMode, cancellationToken);
             var stopped = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
             output.PlaybackStopped += (_, args) => stopped.TrySetResult(args.Exception);
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                stage = "静音准备试听连接与音量";
+                await CalibrationStartup.PrepareAsync(output.Play, () => volumes.ApplyLevel(percent, manual: true),
+                    () =>
+                    {
+                        if (stopped.Task.IsCompleted || output.PlaybackState != PlaybackState.Playing)
+                            throw new InvalidOperationException("试听连接在准备期间已停止。");
+                        volumes.EnsureReady(compatibilityMode ? "试听预热后（兼容播放）" : "试听预热后");
+                    }, cancellationToken, retryStartupRollback: () => volumes.RetryStartupRollback(percent, manual: true, cancellationToken));
                 stage = "开始试听";
-                output.Play();
-                volumes.EnsureReady("开始试听后");
+                cancellationToken.ThrowIfCancellationRequested();
+                chime.Arm();
                 var elapsed = System.Diagnostics.Stopwatch.StartNew();
                 while (!stopped.Task.IsCompleted)
                 {
@@ -98,12 +103,15 @@ internal sealed class DevicePreview
         }
     }
 
-    private sealed class Chime(int sampleRate, int channels) : ISampleProvider
+    internal sealed class Chime(int sampleRate, int channels) : ISampleProvider
     {
         private int _frame;
+        private volatile bool _armed;
+        public void Arm() => _armed = true;
         public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
         public int Read(float[] buffer, int offset, int count)
         {
+            if (!_armed) { Array.Clear(buffer, offset, count); return count; }
             var frames = Math.Min(count / channels, (int)(sampleRate * 1.8) - _frame);
             for (var i = 0; i < frames; i++, _frame++)
             {

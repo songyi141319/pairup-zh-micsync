@@ -122,6 +122,26 @@ internal sealed class CalibrationVolumeScope : IDisposable
         PrepareOwnSessions();
     }
 
+    /// <summary>Only while silent, once per startup. Never overwrite mute, an increase,
+    /// or an arbitrary new level. Recheck every endpoint before repeating the same request.</summary>
+    public void RetryStartupRollback(int percent, bool manual, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        CalibrationStartup.RetryLevel(() =>
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            foreach (var endpoint in _endpoints)
+            {
+                var reading = ReadEndpoint(endpoint, enumerator);
+                if (!IsLowerBaselineRollback(endpoint, reading)) VerifyApplied(endpoint, reading, "重新确认连接音量前");
+            }
+        }, EnsureOwnSessionsReady, () =>
+        {
+            RecordCurrentVolumes("静音预热期间音量回到原值，仅重新设置同一档位一次");
+            ApplyLevel(percent, manual);
+        }, cancellationToken);
+    }
+
     /// <summary>Call after creating each probe stream, before Play, to include its new session.</summary>
     public void PrepareOwnSessions(string stage = "调整声屿应用音量后")
     {
@@ -196,6 +216,11 @@ internal sealed class CalibrationVolumeScope : IDisposable
             }
         }
         RecordDiagnostic(stage, string.Join("；", descriptions));
+        EnsureOwnSessionsReady();
+    }
+
+    private void EnsureOwnSessionsReady()
+    {
         foreach (var snapshot in _sessions.Values)
         {
             if (snapshot.Session.State == AudioSessionState.AudioSessionStateExpired) continue;
@@ -236,9 +261,20 @@ internal sealed class CalibrationVolumeScope : IDisposable
     {
         if (reading.Muted || reading.RetainedMuted || !Matches(reading.Current, endpoint.AppliedVolume) ||
             !Matches(reading.Retained, endpoint.AppliedVolume))
-            throw new InvalidOperationException($"在“{stage}”发现设备音量或静音变化：{reading.Description}；" +
-                $"本轮已确认的临时音量为 {endpoint.AppliedVolume * 100:0.0}%。已停止测试，不会因此提高音量。");
+        {
+            var message = $"在“{stage}”发现设备音量或静音变化：{reading.Description}；" +
+                $"本轮已确认的临时音量为 {endpoint.AppliedVolume * 100:0.0}%。尚未获得稳定音量，未应用新的延迟。";
+            if (IsLowerBaselineRollback(endpoint, reading)) throw new CalibrationStartupRollbackException(message);
+            throw new InvalidOperationException(message);
+        }
     }
+
+    private static bool IsLowerBaselineRollback(EndpointSnapshot endpoint, EndpointReading reading) =>
+        CanRetryBaseline(endpoint.Volume, endpoint.AppliedVolume, reading.Current, reading.Retained, reading.Muted, reading.RetainedMuted);
+
+    internal static bool CanRetryBaseline(float baseline, float applied, float current, float retained, bool muted, bool retainedMuted) =>
+        !muted && !retainedMuted && baseline < applied - .005f &&
+        Matches(current, baseline) && Matches(retained, baseline);
 
     private void RecordDiagnostic(string stage, string values)
     {

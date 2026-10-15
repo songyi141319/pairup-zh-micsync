@@ -50,19 +50,18 @@ public sealed class AcousticCalibrator(AudioEngine engine)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var percent = levels[attempt];
-                volumes.ApplyLevel(percent, options.Mode == CalibrationVolumeMode.Manual);
-                progress?.Report($"主音源与选中音箱临时统一为 {percent}%。结束后恢复各自原音量和静音状态。");
+                progress?.Report($"正在静音准备连接并确认 {percent}% 测试音量；稳定后开始测量。结束后恢复原音量。");
+                var startingConnection = playback is null;
                 if (playback is null)
                 {
                     // Keep one silent stream alive for the whole calibration. Reopening a
                     // Bluetooth stream for every probe needlessly changes native sessions.
                     playback = new ProbePlayback(sourceId, cancellationToken);
-                    volumes.PrepareOwnSessions("建立本次统一测试连接后");
-                    playback.Start();
-                    await Task.Delay(600, cancellationToken);
-                    playback.EnsurePlaying();
-                    volumes.EnsureReady("测试连接预热后");
                 }
+                await CalibrationStartup.PrepareAsync(() => { if (startingConnection) playback.Start(); },
+                    () => volumes.ApplyLevel(percent, options.Mode == CalibrationVolumeMode.Manual),
+                    () => { playback.EnsurePlaying(); volumes.EnsureReady("测试连接预热后"); }, cancellationToken,
+                    retryStartupRollback: () => volumes.RetryStartupRollback(percent, options.Mode == CalibrationVolumeMode.Manual, cancellationToken));
                 await Task.Delay(250, cancellationToken);
                 try
                 {

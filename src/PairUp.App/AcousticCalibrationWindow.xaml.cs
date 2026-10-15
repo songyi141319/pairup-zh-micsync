@@ -38,6 +38,7 @@ public partial class AcousticCalibrationWindow : Window
     private bool _optionsValid;
     private bool _reportApplied;
     private bool _hasRestorationWarning;
+    private bool _copyDiagnosticsInProgress;
     public bool IsMeasuring => _running;
     public event Action? MeasurementStarting;
 
@@ -286,8 +287,8 @@ public partial class AcousticCalibrationWindow : Window
     {
         if (DetailsText.Text == "还没有开始测量。") DetailsText.Clear();
         DetailsText.AppendText($"[{DateTime.Now:HH:mm:ss}] {text}\n");
-        CopyDiagnosticsButton.IsEnabled = true;
-        CopyDiagnosticsButton.Content = "复制诊断";
+        CopyDiagnosticsButton.IsEnabled = !_copyDiagnosticsInProgress;
+        if (!_copyDiagnosticsInProgress) CopyDiagnosticsButton.Content = "复制诊断";
     }
 
     private async void Start_Click(object sender, RoutedEventArgs e)
@@ -575,10 +576,27 @@ public partial class AcousticCalibrationWindow : Window
         RefreshVolumePlan();
     }
 
-    private void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
+    private async void CopyDiagnostics_Click(object sender, RoutedEventArgs e)
     {
-        try { Clipboard.SetText(DetailsText.Text); CopyDiagnosticsButton.Content = "已复制"; }
-        catch { CopyDiagnosticsButton.Content = "复制失败"; FooterStatusText.Text = "可在技术详情里选中文字后复制。"; }
+        if (_copyDiagnosticsInProgress) return;
+        _copyDiagnosticsInProgress = true;
+        var text = DetailsText.Text; // One immutable click-time snapshot, including the full log.
+        CopyDiagnosticsButton.IsEnabled = false;
+        CopyDiagnosticsButton.Content = "正在复制…";
+        try
+        {
+            var result = await DiagnosticClipboard.CopyAsync(text, Clipboard.SetText, Clipboard.GetText);
+            CopyDiagnosticsButton.Content = result.Status == DiagnosticCopyStatus.Verified ? "已复制并核对" : "未能确认复制";
+            FooterStatusText.Text = result.Status == DiagnosticCopyStatus.Verified
+                ? $"已逐字核对本次复制的完整日志，共 {result.Characters} 个字符。"
+                : "剪贴板正忙或内容发生变化，暂不能确认复制完整。可重试，或在技术详情中全选复制。";
+        }
+        catch (Exception ex)
+        {
+            CopyDiagnosticsButton.Content = "未能确认复制";
+            FooterStatusText.Text = "未能确认剪贴板内容，日志仍保留在技术详情中。错误代码：0x" + ex.HResult.ToString("X8");
+        }
+        finally { _copyDiagnosticsInProgress = false; CopyDiagnosticsButton.IsEnabled = true; }
     }
 
     private void RequestCancellation(bool closeAfter)
